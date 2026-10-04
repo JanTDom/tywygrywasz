@@ -43,7 +43,7 @@ import { calculateKpaDeadline } from '../domain/deadlines';
 import { OFFICIAL_LEGAL_SOURCES } from '../domain/legal-knowledge';
 import { buildCompleteCaseAnalysis } from '../domain/case-analysis';
 import { IntelligentClassifier } from '../domain/intelligent-classifier';
-import { EncryptedContainer } from '../domain/crypto';
+import { EncryptedContainer, decryptVault } from '../domain/crypto';
 import { LocalOcrEngine } from '../domain/ocr-engine';
 import { E2EESyncEngine } from '../domain/sync-engine';
 
@@ -75,30 +75,52 @@ export default function ObywatelApp() {
   const [profile, setProfile] = useState<{ id: string; name: string; email: string } | null>(null);
   const [profileDraft, setProfileDraft] = useState({ name: '', email: '' });
   const [profilePassword, setProfilePassword] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [vaultPassphrase, setVaultPassphrase] = useState('');
 
   useEffect(() => {
     const stored = window.localStorage.getItem('obywatel-profile');
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored) as { id: string; name: string; email: string };
-      setProfile(parsed);
-      setProfileDraft({ name: parsed.name, email: parsed.email });
-    } catch {
-      window.localStorage.removeItem('obywatel-profile');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored) as { id: string; name: string; email: string };
+        setProfile(parsed);
+        setProfileDraft({ name: parsed.name, email: parsed.email });
+      } catch {
+        window.localStorage.removeItem('obywatel-profile');
+      }
     }
+    void fetch('/api/auth/me', { credentials: 'include' })
+      .then(async (response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!data?.user) return;
+        const next = { id: data.user.id, name: data.user.name, email: data.user.email };
+        setProfile(next);
+        setProfileDraft({ name: next.name, email: next.email });
+        window.localStorage.setItem('obywatel-profile', JSON.stringify(next));
+      })
+      .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!profile || !vaultPassphrase || typeof window === 'undefined') return;
+    let cancelled = false;
+    void vault.exportEncryptedBackup(vaultPassphrase).then((container) => {
+      if (!cancelled) window.localStorage.setItem(`tywygrywasz-vault-${profile.id}`, JSON.stringify(container));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [vault, profile, vaultPassphrase]);
 
   const handleSaveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!profile && (cases.length > 0 || documents.length > 0)) {
+    if (authMode === 'register' && (cases.length > 0 || documents.length > 0)) {
       setGlobalNotice('Najpierw wykonaj lokalną kopię sejfu. Nie przypisuję istniejących dokumentów do nowego konta automatycznie.');
       return;
     }
     try {
       const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
       const csrfData = await csrfResponse.json();
-      const endpoint = profile ? '/api/auth/login' : '/api/auth/register';
-      const payload = profile
+      const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const payload = authMode === 'login'
         ? { email: profileDraft.email, password: profilePassword }
         : { name: profileDraft.name, email: profileDraft.email, password: profilePassword };
       const authResponse = await fetch(endpoint, {
@@ -110,8 +132,9 @@ export default function ObywatelApp() {
       const authData = await authResponse.json();
       if (!authResponse.ok || !authData.user) throw new Error(authData.error || 'Nie udało się zapisać konta.');
 
-      const nextProfile = { id: authData.user.id, name: profileDraft.name.trim() || authData.user.name, email: authData.user.email };
-      if (profile && nextProfile.name !== authData.user.name) {
+      const nextProfile = { id: authData.user.id, name: authData.user.name, email: authData.user.email };
+      if (authMode === 'login' && profile?.id === nextProfile.id && profileDraft.name.trim() && profileDraft.name.trim() !== authData.user.name) {
+        nextProfile.name = profileDraft.name.trim();
         await fetch('/api/auth/me', {
           method: 'PATCH',
           credentials: 'include',
@@ -121,11 +144,38 @@ export default function ObywatelApp() {
       }
       window.localStorage.setItem('obywatel-profile', JSON.stringify(nextProfile));
       setProfile(nextProfile);
+      setVaultPassphrase(profilePassword);
+      setVault(new LocalVault(`sejf-${nextProfile.id}`));
+      const storedVault = window.localStorage.getItem(`tywygrywasz-vault-${nextProfile.id}`);
+      if (storedVault) {
+        try {
+          const restoredManifest = JSON.parse(await decryptVault(JSON.parse(storedVault) as EncryptedContainer, profilePassword));
+          setVault(LocalVault.fromManifest(restoredManifest));
+          setGlobalNotice('Zalogowano i odtworzono lokalny sejf tego konta.');
+        } catch {
+          setGlobalNotice('Zalogowano. Lokalny sejf wymaga importu kopii zapasowej.');
+        }
+      }
       setProfilePassword('');
       setIsAccountOpen(false);
-      setGlobalNotice(profile ? 'Zalogowano i zapisano profil właściciela sejfu.' : 'Konto utworzone. Dokumenty nadal pozostają na tym urządzeniu.');
+      if (!storedVault) setGlobalNotice(authMode === 'login' ? 'Zalogowano. Utwórz lub odtwórz swój lokalny sejf.' : 'Konto utworzone. Dokumenty zostają w zaszyfrowanym sejfie tego urządzenia.');
     } catch (error) {
       setGlobalNotice(error instanceof Error ? error.message : 'Nie udało się zapisać konta.');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
+      const csrfData = await csrfResponse.json();
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { 'x-csrf-token': csrfData.csrfToken } });
+    } finally {
+      setProfile(null);
+      setVaultPassphrase('');
+      setVault(new LocalVault('sejf-lokalny-01'));
+      window.localStorage.removeItem('obywatel-profile');
+      setIsAccountOpen(false);
+      setGlobalNotice('Wylogowano. Dane konta pozostały w zaszyfrowanym sejfie urządzenia.');
     }
   };
 
@@ -631,7 +681,7 @@ export default function ObywatelApp() {
         diskRelativePath: `Moje_sprawy/Do_uporzadkowania/${file.name}`,
       });
     }
-    setGlobalNotice(`Dodano ${selectedFiles.length} ${selectedFiles.length === 1 ? 'dokument' : 'dokumenty'} do lokalnego sejfu. Oryginały pozostają na dysku.${rejectedCount ? ` Pominięto ${rejectedCount} nieobsługiwanych plików.` : ''}`);
+    setGlobalNotice(`Dodano ${selectedFiles.length} ${selectedFiles.length === 1 ? 'dokument' : 'dokumenty'} do zaszyfrowanego lokalnego sejfu.${rejectedCount ? ` Pominięto ${rejectedCount} nieobsługiwanych plików.` : ''}`);
     triggerRefresh();
   };
 
@@ -707,7 +757,7 @@ export default function ObywatelApp() {
           <div className="topbar-actions">
             <button type="button" className="topbar-icon" aria-label="Powiadomienia" onClick={() => setGlobalNotice('Nie masz nowych powiadomień.')}><Bell size={18} /></button>
             <span className="topbar-local"><span className="trust-dot" /> Tylko na tym urządzeniu</span>
-            <button type="button" className="topbar-avatar" onClick={() => { setProfileDraft(profile ? { name: profile.name, email: profile.email } : { name: '', email: '' }); setProfilePassword(''); setIsAccountOpen(true); }} aria-label={profile ? `Otwórz profil ${profile.name}` : 'Załóż konto'}>{profile ? profile.name.slice(0, 2).toUpperCase() : <UserRound size={16} />}</button>
+            <button type="button" className="topbar-avatar" onClick={() => { setAuthMode('login'); setProfileDraft(profile ? { name: profile.name, email: profile.email } : { name: '', email: '' }); setProfilePassword(''); setIsAccountOpen(true); }} aria-label={profile ? `Otwórz profil ${profile.name}` : 'Zaloguj lub załóż konto'}>{profile ? profile.name.slice(0, 2).toUpperCase() : <UserRound size={16} />}</button>
             <ChevronDown size={15} className="text-slate-400" aria-hidden="true" />
           </div>
         </header>
@@ -872,16 +922,18 @@ export default function ObywatelApp() {
           <section className="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title">
             <img className="account-logo" src="/tywygrywasz-logo.png" alt="TyWygrywasz.pl" />
             <div className="account-dialog-head">
-              <div><div className="panel-kicker"><UserRound size={16} /> PROFIL WŁAŚCICIELA SEJFU</div><h2 id="account-title">{profile ? 'Zarządzaj swoim kontem' : 'Załóż swoje konto'}</h2></div>
+              <div><div className="panel-kicker"><UserRound size={16} /> PROFIL WŁAŚCICIELA SEJFU</div><h2 id="account-title">{profile ? 'Zarządzaj swoim kontem' : authMode === 'login' ? 'Zaloguj się do swojego konta' : 'Załóż swoje konto'}</h2></div>
               <button type="button" className="account-close" onClick={() => setIsAccountOpen(false)} aria-label="Zamknij"><X size={18} /></button>
             </div>
             <p className="account-intro">Profil pomaga odróżnić Twój sejf od innych profili na tym urządzeniu. Dokumenty pozostają lokalnie i nie są wysyłane przy zakładaniu profilu.</p>
             <form onSubmit={handleSaveProfile} className="account-form">
-              <label>Jak mamy się do Ciebie zwracać<input required autoFocus value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} placeholder="np. Anna Kowalska" /></label>
+              {(authMode === 'register' || profile) && <label>Jak mamy się do Ciebie zwracać<input required autoFocus value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} placeholder="np. Anna Kowalska" /></label>}
               <label>Adres e-mail<input required type="email" autoComplete="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="np. anna@example.pl" /></label>
-              <label>Hasło konta <span>(minimum 12 znaków)</span><input required type="password" autoComplete={profile ? 'current-password' : 'new-password'} minLength={12} value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} placeholder="••••••••••••" /></label>
+              <label>Hasło konta <span>(minimum 12 znaków)</span><input required type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} minLength={12} value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} placeholder="••••••••••••" /></label>
               <div className="account-note"><Shield size={16} /><span>Konto przechowuje tylko dane logowania. Dokumenty, OCR i hasło sejfu zostają oddzielnie na Twoim urządzeniu.</span></div>
-              <div className="account-actions"><button type="button" className="button-secondary" onClick={() => setIsAccountOpen(false)}>Anuluj</button><button type="submit" className="button-primary">{profile ? 'Zapisz zmiany' : 'Utwórz konto'}</button></div>
+              <div className="account-actions"><button type="button" className="button-secondary" onClick={() => setIsAccountOpen(false)}>Anuluj</button><button type="submit" className="button-primary">{authMode === 'login' ? 'Zaloguj się' : 'Utwórz konto'}</button></div>
+              {!profile && <button type="button" className="account-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Nie masz konta? Załóż je' : 'Masz już konto? Zaloguj się'}</button>}
+              {profile && <button type="button" className="account-switch" onClick={handleLogout}>Wyloguj się</button>}
             </form>
           </section>
         </div>

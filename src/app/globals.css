@@ -313,6 +313,7 @@ button, input, select, textarea { font: inherit; }
 .account-note svg { flex: 0 0 auto; color: var(--teal); }
 .account-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 4px; }
 .account-actions .button-primary, .account-actions .button-secondary { min-height: 40px; }
+.account-switch { margin-top: 2px; padding: 4px; color: var(--teal); background: transparent; border: 0; text-align: center; font-size: 11px; font-weight: 700; cursor: pointer; }
 
 @media (max-width: 640px) {
   .notice-bar { padding: 0 16px; font-size: 11px; }

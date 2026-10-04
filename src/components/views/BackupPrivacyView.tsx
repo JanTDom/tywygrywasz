@@ -39,19 +39,19 @@ export function BackupPrivacyView({
   onSyncFromServer,
 }: BackupPrivacyViewProps) {
   // Backup state
-  const [exportPassword, setExportPassword] = useState('BezpieczneHasloSejfu2026!');
+  const [exportPassword, setExportPassword] = useState('');
   const [exportedJson, setExportedJson] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   // Restore state
-  const [restorePassword, setRestorePassword] = useState('BezpieczneHasloSejfu2026!');
+  const [restorePassword, setRestorePassword] = useState('');
   const [restoreInputJson, setRestoreInputJson] = useState('');
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
 
   // Cloud E2EE Sync state
-  const [syncPassphrase, setSyncPassphrase] = useState('BezpieczneHasloSejfu2026!');
+  const [syncPassphrase, setSyncPassphrase] = useState('');
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);

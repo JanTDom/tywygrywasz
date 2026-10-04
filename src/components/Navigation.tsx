@@ -2,16 +2,19 @@
 
 import React from 'react';
 import {
-  Calendar,
+  CalendarDays,
   FolderKanban,
   HardDrive,
   Inbox,
-  Clock,
+  Clock3,
   Scale,
   ListTodo,
   FileText,
   BookOpen,
   ShieldCheck,
+  MoreHorizontal,
+  Settings2,
+  Plus,
 } from 'lucide-react';
 
 export type ViewType =
@@ -33,57 +36,107 @@ interface NavigationProps {
   urgentCount: number;
 }
 
-export function Navigation({
-  activeView,
-  onSelectView,
-  inboxCount,
-  urgentCount,
-}: NavigationProps) {
-  const navItems: { id: ViewType; label: string; icon: React.ReactNode; badge?: number }[] = [
-    { id: 'today', label: 'Dziś', icon: <Calendar className="w-4 h-4" />, badge: urgentCount > 0 ? urgentCount : undefined },
-    { id: 'cases', label: 'Moje sprawy', icon: <FolderKanban className="w-4 h-4" /> },
-    { id: 'disk', label: 'Dokumenty na dysku', icon: <HardDrive className="w-4 h-4" /> },
-    { id: 'inbox', label: 'Do uporządkowania', icon: <Inbox className="w-4 h-4" />, badge: inboxCount > 0 ? inboxCount : undefined },
-    { id: 'timeline', label: 'Oś czasu', icon: <Clock className="w-4 h-4" /> },
-    { id: 'evidence', label: 'Dowody i stanowiska', icon: <Scale className="w-4 h-4" /> },
-    { id: 'plan', label: 'Plan działania', icon: <ListTodo className="w-4 h-4" /> },
-    { id: 'letters', label: 'Pisma', icon: <FileText className="w-4 h-4" /> },
-    { id: 'legal', label: 'Źródła i analiza prawna', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'privacy', label: 'Kopie zapasowe i prywatność', icon: <ShieldCheck className="w-4 h-4" /> },
+type NavItem = { id: ViewType; label: string; icon: React.ReactNode; badge?: number };
+
+export function Navigation({ activeView, onSelectView, inboxCount, urgentCount }: NavigationProps) {
+  const sections: { label: string; items: NavItem[] }[] = [
+    {
+      label: 'Start',
+      items: [
+        { id: 'today', label: 'Dziś', icon: <CalendarDays size={19} />, badge: urgentCount || undefined },
+        { id: 'cases', label: 'Moje sprawy', icon: <FolderKanban size={19} /> },
+      ],
+    },
+    {
+      label: 'Prowadź',
+      items: [
+        { id: 'disk', label: 'Dokumenty', icon: <HardDrive size={19} /> },
+        { id: 'inbox', label: 'Nowe dokumenty', icon: <Inbox size={19} />, badge: inboxCount || undefined },
+        { id: 'timeline', label: 'Oś czasu', icon: <Clock3 size={19} /> },
+        { id: 'letters', label: 'Pisma', icon: <FileText size={19} /> },
+      ],
+    },
+    {
+      label: 'Sprawdzaj',
+      items: [
+        { id: 'plan', label: 'Plan działania', icon: <ListTodo size={19} /> },
+        { id: 'evidence', label: 'Dowody i stanowiska', icon: <Scale size={19} /> },
+        { id: 'legal', label: 'Prawo i źródła', icon: <BookOpen size={19} /> },
+      ],
+    },
   ];
 
+  const renderItem = (item: NavItem) => {
+    const isActive = activeView === item.id;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => onSelectView(item.id)}
+        aria-current={isActive ? 'page' : undefined}
+        className={`rail-link ${isActive ? 'rail-link-active' : ''}`}
+      >
+        <span className="rail-link-icon">{item.icon}</span>
+        <span className="rail-link-label">{item.label}</span>
+        {item.badge !== undefined && <span className={`rail-badge ${isActive ? 'rail-badge-active' : ''}`}>{item.badge}</span>}
+      </button>
+    );
+  };
+
   return (
-    <nav aria-label="Główne widoki aplikacji" className="bg-white border-b border-slate-200 px-4">
-      <ul className="max-w-6xl mx-auto flex items-center gap-1 overflow-x-auto py-2 text-xs font-medium text-slate-600 no-scrollbar">
-        {navItems.map((item) => {
-          const isActive = activeView === item.id;
-          return (
-            <li key={item.id} className="flex-shrink-0">
-              <button
-                type="button"
-                onClick={() => onSelectView(item.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors relative ${
-                  isActive
-                    ? 'bg-slate-900 text-white font-semibold shadow-sm'
-                    : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-                {item.badge !== undefined && (
-                  <span
-                    className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      isActive ? 'bg-amber-400 text-slate-950' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                    }`}
-                  >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <>
+      <aside className="app-rail no-print" aria-label="Główna nawigacja">
+        <div className="rail-brand">
+          <img className="brand-logo" src="/tywygrywasz-shield.png" alt="TyWygrywasz.pl" />
+          <div>
+            <div className="brand-name">TyWygrywasz.pl</div>
+            <div className="brand-caption">Twój porządek w sprawie</div>
+          </div>
+        </div>
+
+        <button type="button" className="rail-add" onClick={() => onSelectView('cases')}>
+          <Plus size={17} /> <span>Dodaj coś nowego</span>
+        </button>
+
+        <div className="rail-sections">
+          {sections.map((section) => (
+            <div className="rail-section" key={section.label}>
+              <div className="rail-section-label">{section.label}</div>
+              <div className="rail-section-items">{section.items.map(renderItem)}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="rail-bottom">
+          <button type="button" className={`rail-link ${activeView === 'privacy' ? 'rail-link-active' : ''}`} onClick={() => onSelectView('privacy')} aria-current={activeView === 'privacy' ? 'page' : undefined}>
+            <span className="rail-link-icon"><ShieldCheck size={19} /></span>
+            <span className="rail-link-label">Kopie i prywatność</span>
+          </button>
+          <div className="rail-trust">
+            <div className="rail-trust-top"><span className="trust-dot" /> Sejf działa lokalnie</div>
+            <p>Pliki zostają na tym urządzeniu.</p>
+            <button type="button" onClick={() => onSelectView('privacy')}>Sprawdź ustawienia <span aria-hidden="true">↗</span></button>
+          </div>
+          <button type="button" className="rail-link rail-settings" onClick={() => onSelectView('privacy')}>
+            <span className="rail-link-icon"><Settings2 size={18} /></span>
+            <span className="rail-link-label">Ustawienia</span>
+          </button>
+        </div>
+      </aside>
+
+      <nav className="mobile-nav no-print" aria-label="Skrócona nawigacja">
+        {[
+          ['today', 'Dziś', <CalendarDays key="today" size={19} />],
+          ['cases', 'Sprawy', <FolderKanban key="cases" size={19} />],
+          ['disk', 'Dokumenty', <HardDrive key="disk" size={19} />],
+          ['plan', 'Zadania', <ListTodo key="plan" size={19} />],
+          ['privacy', 'Więcej', <MoreHorizontal key="more" size={19} />],
+        ].map(([id, label, icon]) => (
+          <button type="button" key={id as string} className={activeView === id ? 'mobile-nav-item mobile-nav-item-active' : 'mobile-nav-item'} onClick={() => onSelectView(id as ViewType)} aria-current={activeView === id ? 'page' : undefined}>
+            {icon}<span>{label}</span>
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }

@@ -7,6 +7,11 @@ import {
   FolderOpen,
   CheckCircle2,
   AlertTriangle,
+  Bell,
+  ChevronDown,
+  Search,
+  UserRound,
+  X,
 } from 'lucide-react';
 import { Navigation, ViewType } from '../components/Navigation';
 import { TodayView } from '../components/views/TodayView';
@@ -43,7 +48,20 @@ import { LocalOcrEngine } from '../domain/ocr-engine';
 import { E2EESyncEngine } from '../domain/sync-engine';
 
 export default function ObywatelApp() {
-  const [vault, setVault] = useState<LocalVault>(() => new LocalVault('sejf-lokalny-01'));
+  const [vault, setVault] = useState<LocalVault>(() => {
+    if (typeof window !== 'undefined') {
+      const storedProfile = window.localStorage.getItem('obywatel-profile');
+      if (storedProfile) {
+        try {
+          const parsed = JSON.parse(storedProfile) as { id?: string };
+          if (parsed.id) return new LocalVault(`sejf-${parsed.id}`);
+        } catch {
+          // Uszkodzony profil zostanie pominięty, a użytkownik może utworzyć nowy.
+        }
+      }
+    }
+    return new LocalVault('sejf-lokalny-01');
+  });
   const [activeView, setActiveView] = useState<ViewType>('today');
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
 
@@ -53,6 +71,63 @@ export default function ObywatelApp() {
   const [globalNotice, setGlobalNotice] = useState<string | null>(null);
   const [lastMoveDescription, setLastMoveDescription] = useState<string | null>(null);
   const [diskFiles, setDiskFiles] = useState<DiskFileInfo[]>([]);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
+  const [profile, setProfile] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [profileDraft, setProfileDraft] = useState({ name: '', email: '' });
+  const [profilePassword, setProfilePassword] = useState('');
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem('obywatel-profile');
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as { id: string; name: string; email: string };
+      setProfile(parsed);
+      setProfileDraft({ name: parsed.name, email: parsed.email });
+    } catch {
+      window.localStorage.removeItem('obywatel-profile');
+    }
+  }, []);
+
+  const handleSaveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!profile && (cases.length > 0 || documents.length > 0)) {
+      setGlobalNotice('Najpierw wykonaj lokalną kopię sejfu. Nie przypisuję istniejących dokumentów do nowego konta automatycznie.');
+      return;
+    }
+    try {
+      const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
+      const csrfData = await csrfResponse.json();
+      const endpoint = profile ? '/api/auth/login' : '/api/auth/register';
+      const payload = profile
+        ? { email: profileDraft.email, password: profilePassword }
+        : { name: profileDraft.name, email: profileDraft.email, password: profilePassword };
+      const authResponse = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfData.csrfToken },
+        body: JSON.stringify(payload),
+      });
+      const authData = await authResponse.json();
+      if (!authResponse.ok || !authData.user) throw new Error(authData.error || 'Nie udało się zapisać konta.');
+
+      const nextProfile = { id: authData.user.id, name: profileDraft.name.trim() || authData.user.name, email: authData.user.email };
+      if (profile && nextProfile.name !== authData.user.name) {
+        await fetch('/api/auth/me', {
+          method: 'PATCH',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfData.csrfToken },
+          body: JSON.stringify({ name: nextProfile.name }),
+        });
+      }
+      window.localStorage.setItem('obywatel-profile', JSON.stringify(nextProfile));
+      setProfile(nextProfile);
+      setProfilePassword('');
+      setIsAccountOpen(false);
+      setGlobalNotice(profile ? 'Zalogowano i zapisano profil właściciela sejfu.' : 'Konto utworzone. Dokumenty nadal pozostają na tym urządzeniu.');
+    } catch (error) {
+      setGlobalNotice(error instanceof Error ? error.message : 'Nie udało się zapisać konta.');
+    }
+  };
 
   // Trigger state refresh for sub-components
   const [, startTransition] = useTransition();
@@ -113,17 +188,21 @@ export default function ObywatelApp() {
   }, []);
 
   // 2. Skanowanie dysku via API
+  const postWorkspace = async (body: Record<string, unknown>) => {
+    const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
+    const csrfData = await csrfResponse.json();
+    return fetch('/api/workspace', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfData.csrfToken },
+      body: JSON.stringify(body),
+    });
+  };
+
   const handleScanDisk = async () => {
     setIsScanningDisk(true);
     try {
-      const res = await fetch('/api/workspace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'scan',
-          knownDocuments: documents,
-        }),
-      });
+      const res = await postWorkspace({ action: 'scan', knownDocuments: documents });
       if (res.ok) {
         const data = await res.json();
         if (data.scanResult?.files) {
@@ -180,14 +259,7 @@ export default function ObywatelApp() {
 
       // Utworzenie katalogów na dysku
       for (const c of [case1, case2, case3]) {
-        await fetch('/api/workspace', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'create_case_folder',
-            folderName: c.folderName,
-          }),
-        });
+        await postWorkspace({ action: 'create_case_folder', folderName: c.folderName });
       }
 
       // Import dokumentów syntetycznych
@@ -249,16 +321,12 @@ export default function ObywatelApp() {
           ? 'Do_uporzadkowania'
           : vault.cases.get(item.suggestedCaseId)?.folderName || 'Do_uporzadkowania';
 
-        await fetch('/api/workspace', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'write_file',
-            folderName: isInboxStaged ? '' : folderTarget,
-            subfolder: isInboxStaged ? 'Do_uporzadkowania' : subfolder,
-            fileName: item.fileName,
-            content: item.content,
-          }),
+        await postWorkspace({
+          action: 'write_file',
+          folderName: isInboxStaged ? '' : folderTarget,
+          subfolder: isInboxStaged ? 'Do_uporzadkowania' : subfolder,
+          fileName: item.fileName,
+          content: item.content,
         });
 
         // Jeśli plik jest w skrzynce, przygotuj propozycję inteligentnego klasyfikatora
@@ -406,16 +474,12 @@ export default function ObywatelApp() {
     const destinationPath = `${targetCase.folderName}/${targetSubfolder}/${doc.originalFileName}`;
 
     try {
-      const res = await fetch('/api/workspace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'move_file',
-          sourceRelativePath: sourcePath,
-          destinationRelativePath: destinationPath,
-          description: `Przeniesiono ${doc.originalFileName} do sprawy ${targetCase.title}`,
-          documentId: doc.id,
-        }),
+      const res = await postWorkspace({
+        action: 'move_file',
+        sourceRelativePath: sourcePath,
+        destinationRelativePath: destinationPath,
+        description: `Przeniesiono ${doc.originalFileName} do sprawy ${targetCase.title}`,
+        documentId: doc.id,
       });
 
       if (res.ok) {
@@ -441,11 +505,7 @@ export default function ObywatelApp() {
   // 7. Cofanie operacji (Undo)
   const handleUndoLastMove = async () => {
     try {
-      const res = await fetch('/api/workspace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'undo' }),
-      });
+      const res = await postWorkspace({ action: 'undo' });
 
       if (res.ok) {
         vault.undoLastOperation();
@@ -539,6 +599,42 @@ export default function ObywatelApp() {
     triggerRefresh();
   };
 
+  const handleImportFiles = async (files: FileList | File[]) => {
+    const allowedExtensions = /\.(doc|rtf|txt|pdf|jpe?g|png)$/i;
+    const selectedFiles = Array.from(files).filter((file) => allowedExtensions.test(file.name));
+    const rejectedCount = Array.from(files).length - selectedFiles.length;
+    if (!selectedFiles.length) {
+      setGlobalNotice('Obsługiwane formaty to DOC, RTF, TXT, PDF, JPG i PNG.');
+      return;
+    }
+    for (const file of selectedFiles) {
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const isText = extension === 'txt' || extension === 'rtf' || file.type.startsWith('text/');
+      let content: string;
+      if (isText) {
+        content = await file.text();
+      } else {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+        }
+        content = `[Lokalny payload binarny: ${file.type || extension}]\n${btoa(binary)}`;
+      }
+      await vault.importDocument({
+        type: 'other',
+        direction: 'incoming',
+        origin: 'disk_file',
+        originalFileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        content,
+        diskRelativePath: `Moje_sprawy/Do_uporzadkowania/${file.name}`,
+      });
+    }
+    setGlobalNotice(`Dodano ${selectedFiles.length} ${selectedFiles.length === 1 ? 'dokument' : 'dokumenty'} do lokalnego sejfu. Oryginały pozostają na dysku.${rejectedCount ? ` Pominięto ${rejectedCount} nieobsługiwanych plików.` : ''}`);
+    triggerRefresh();
+  };
+
   const handleSaveCorrection = async (docId: string, correctedText: string, note: string) => {
     await vault.addDocumentVersion({
       documentId: docId,
@@ -561,10 +657,13 @@ export default function ObywatelApp() {
     const syncEngine = new E2EESyncEngine();
     const manifest = vault.toManifest();
     const payload = await syncEngine.prepareSyncPayload(manifest, passphrase);
+    const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
+    const csrfData = await csrfResponse.json();
 
     const res = await fetch('/api/sync', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfData.csrfToken },
       body: JSON.stringify(payload),
     });
 
@@ -578,7 +677,7 @@ export default function ObywatelApp() {
   const handleSyncFromServer = async (passphrase: string) => {
     const syncEngine = new E2EESyncEngine();
     const recordId = `sync-${vault.vaultId}`;
-    const res = await fetch(`/api/sync?recordId=${recordId}`);
+    const res = await fetch(`/api/sync?recordId=${recordId}`, { credentials: 'include' });
     if (!res.ok) {
       throw new Error('Brak rekordu synchronizacji na serwerze lub odmowa dostępu.');
     }
@@ -590,39 +689,7 @@ export default function ObywatelApp() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans">
-      {/* Top Header Bar */}
-      <header className="bg-slate-950 text-white border-b border-slate-800 py-3.5 px-4 shadow-sm">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-sm tracking-wider text-emerald-400">
-              OB
-            </div>
-            <div>
-              <span className="text-base font-bold tracking-tight text-white block leading-tight">
-                Obywatel
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium">
-                Prywatny organizator spraw i obrońca praw obywatelskich
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 text-xs">
-            <div className="hidden sm:flex items-center gap-1.5 bg-slate-900 text-slate-300 border border-slate-800 px-3 py-1.5 rounded-lg font-mono text-[11px]">
-              <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
-              <span>Moje_sprawy/</span>
-            </div>
-
-            <div className="flex items-center gap-1 text-emerald-400 font-semibold bg-emerald-950/60 border border-emerald-900 px-2.5 py-1 rounded-lg">
-              <Shield className="w-3.5 h-3.5" />
-              <span className="text-[11px]">Lokalny sejf</span>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Global Navigation Tabs (10 views) */}
+    <div className="app-shell">
       <Navigation
         activeView={activeView}
         onSelectView={(v) => setActiveView(v)}
@@ -630,27 +697,29 @@ export default function ObywatelApp() {
         urgentCount={urgentCount}
       />
 
-      {/* Global dismissible banner */}
-      {globalNotice && (
-        <aside aria-label="Powiadomienie systemowe" className="bg-slate-900 text-white text-xs px-4 py-2 border-b border-slate-800">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <span>{globalNotice}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setGlobalNotice(null)}
-              className="text-slate-400 hover:text-white font-semibold text-[11px]"
-            >
-              Zamknij
-            </button>
+      <div className="app-main">
+        <header className="app-topbar no-print">
+          <button type="button" className="topbar-search" onClick={() => setGlobalNotice('Wyszukiwanie lokalne będzie dostępne po dodaniu dokumentów do sejfu.')} aria-label="Szukaj w sprawach, dokumentach i pismach">
+            <Search size={17} />
+            <span>Szukaj w sprawach, dokumentach i pismach…</span>
+            <span className="topbar-shortcut">⌘ K</span>
+          </button>
+          <div className="topbar-actions">
+            <button type="button" className="topbar-icon" aria-label="Powiadomienia" onClick={() => setGlobalNotice('Nie masz nowych powiadomień.')}><Bell size={18} /></button>
+            <span className="topbar-local"><span className="trust-dot" /> Tylko na tym urządzeniu</span>
+            <button type="button" className="topbar-avatar" onClick={() => { setProfileDraft(profile ? { name: profile.name, email: profile.email } : { name: '', email: '' }); setProfilePassword(''); setIsAccountOpen(true); }} aria-label={profile ? `Otwórz profil ${profile.name}` : 'Załóż konto'}>{profile ? profile.name.slice(0, 2).toUpperCase() : <UserRound size={16} />}</button>
+            <ChevronDown size={15} className="text-slate-400" aria-hidden="true" />
           </div>
-        </aside>
-      )}
+        </header>
 
-      {/* Main View Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6">
+        {globalNotice && (
+          <aside aria-label="Powiadomienie systemowe" className="notice-bar no-print">
+            <div><CheckCircle2 size={16} /><span>{globalNotice}</span></div>
+            <button type="button" onClick={() => setGlobalNotice(null)} aria-label="Zamknij powiadomienie"><X size={15} /></button>
+          </aside>
+        )}
+
+        <main className="app-content">
         {activeView === 'today' && (
           <TodayView
             cases={cases}
@@ -693,6 +762,7 @@ export default function ObywatelApp() {
             diskFiles={diskFiles}
             extractedFields={Array.from(vault.extractedFields.values())}
             onScanDisk={handleScanDisk}
+            onImportFiles={handleImportFiles}
             onSplitMultiPageScan={handleSplitMultiPageScan}
             onRunLocalOcr={handleRunLocalOcr}
             onSaveCorrection={handleSaveCorrection}
@@ -794,17 +864,28 @@ export default function ObywatelApp() {
             onSyncFromServer={handleSyncFromServer}
           />
         )}
-      </main>
+        </main>
+      </div>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-4 px-4 text-center text-xs text-slate-500">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>Obywatel - aplikacja dla osób prowadzących własne sprawy</span>
-          <span className="font-mono text-[11px] text-slate-400">
-            Standard Fable 5.1 | Wszystkie dane na Twoim urządzeniu
-          </span>
+      {isAccountOpen && (
+        <div className="account-overlay no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsAccountOpen(false); }}>
+          <section className="account-dialog" role="dialog" aria-modal="true" aria-labelledby="account-title">
+            <img className="account-logo" src="/tywygrywasz-logo.png" alt="TyWygrywasz.pl" />
+            <div className="account-dialog-head">
+              <div><div className="panel-kicker"><UserRound size={16} /> PROFIL WŁAŚCICIELA SEJFU</div><h2 id="account-title">{profile ? 'Zarządzaj swoim kontem' : 'Załóż swoje konto'}</h2></div>
+              <button type="button" className="account-close" onClick={() => setIsAccountOpen(false)} aria-label="Zamknij"><X size={18} /></button>
+            </div>
+            <p className="account-intro">Profil pomaga odróżnić Twój sejf od innych profili na tym urządzeniu. Dokumenty pozostają lokalnie i nie są wysyłane przy zakładaniu profilu.</p>
+            <form onSubmit={handleSaveProfile} className="account-form">
+              <label>Jak mamy się do Ciebie zwracać<input required autoFocus value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} placeholder="np. Anna Kowalska" /></label>
+              <label>Adres e-mail<input required type="email" autoComplete="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="np. anna@example.pl" /></label>
+              <label>Hasło konta <span>(minimum 12 znaków)</span><input required type="password" autoComplete={profile ? 'current-password' : 'new-password'} minLength={12} value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} placeholder="••••••••••••" /></label>
+              <div className="account-note"><Shield size={16} /><span>Konto przechowuje tylko dane logowania. Dokumenty, OCR i hasło sejfu zostają oddzielnie na Twoim urządzeniu.</span></div>
+              <div className="account-actions"><button type="button" className="button-secondary" onClick={() => setIsAccountOpen(false)}>Anuluj</button><button type="submit" className="button-primary">{profile ? 'Zapisz zmiany' : 'Utwórz konto'}</button></div>
+            </form>
+          </section>
         </div>
-      </footer>
+      )}
     </div>
   );
 }

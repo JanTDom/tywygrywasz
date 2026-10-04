@@ -1,64 +1,83 @@
 /**
- * Obywatel - Local Workspace API Bridge
- * Next.js Route Handler for physical disk operations under Moje_sprawy/
+ * Local development workspace bridge. It is per authenticated account and is
+ * not a browser-wide disk API. Production deployments should use File System
+ * Access/OPFS instead of exposing a server filesystem.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { LocalDiskManager } from '@/domain/disk-manager';
+import { CaseSubfolder, DocumentRecord } from '@/domain/types';
+import { csrfIsValid, jsonError, parseJsonBody, userFromRequest } from '../auth/_utils';
 
-const DEFAULT_WORKSPACE_PATH = path.join(process.cwd(), 'Moje_sprawy');
-const diskManager = new LocalDiskManager(DEFAULT_WORKSPACE_PATH);
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const managers = new Map<string, LocalDiskManager>();
+
+function localOnlyResponse(): NextResponse {
+  return jsonError('Most plików działa wyłącznie w lokalnej aplikacji. Na wdrożeniu webowym użyj importu plików w przeglądarce.', 410);
+}
+
+function managerForUser(userId: string): LocalDiskManager {
+  let manager = managers.get(userId);
+  if (!manager) {
+    manager = new LocalDiskManager(path.join(process.cwd(), 'Moje_sprawy', userId));
+    managers.set(userId, manager);
+  }
+  return manager;
+}
 
 export async function GET(req: NextRequest) {
+  if (process.env.VERCEL === '1') return localOnlyResponse();
+  const user = await userFromRequest(req);
+  if (!user) return jsonError('Wymagane zalogowanie do lokalnego mostu plików.', 401);
   try {
+    const diskManager = managerForUser(user.id);
     await diskManager.initializeWorkspace();
     const scan = await diskManager.scanDiskAndDetectChanges([]);
-    return NextResponse.json({
-      success: true,
-      workspacePath: DEFAULT_WORKSPACE_PATH,
-      scan,
-      history: diskManager.history,
-    });
+    const response = NextResponse.json({ success: true, scan, history: diskManager.history }, { headers: { 'Cache-Control': 'no-store' } });
+    return response;
   } catch (err: unknown) {
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'Błąd skanowania katalogu roboczego' },
-      { status: 500 }
-    );
+    return jsonError(err instanceof Error ? err.message : 'Błąd skanowania katalogu roboczego.', 400);
   }
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { action } = body;
+  if (process.env.VERCEL === '1') return localOnlyResponse();
+  const user = await userFromRequest(req);
+  if (!user) return jsonError('Wymagane zalogowanie do lokalnego mostu plików.', 401);
+  if (!csrfIsValid(req)) return jsonError('Nieprawidłowy token formularza.', 403);
 
+  try {
+    const body = await parseJsonBody(req, 8 * 1024 * 1024);
+    const { action } = body;
+    const diskManager = managerForUser(user.id);
     await diskManager.initializeWorkspace();
 
     if (action === 'create_case_folder') {
-      const { folderName } = body;
-      const caseDir = await diskManager.createCaseFolder(folderName);
-      return NextResponse.json({ success: true, caseDir });
+      const folderName = typeof body.folderName === 'string' ? body.folderName : '';
+      await diskManager.createCaseFolder(folderName);
+      return NextResponse.json({ success: true, folderName });
     }
 
     if (action === 'write_file') {
-      const { folderName, subfolder, fileName, content } = body;
       const result = await diskManager.writeDocumentFile({
-        folderName,
-        subfolder,
-        fileName,
-        content,
+        folderName: typeof body.folderName === 'string' ? body.folderName : undefined,
+        subfolder: body.subfolder as CaseSubfolder,
+        fileName: typeof body.fileName === 'string' ? body.fileName : '',
+        content: typeof body.content === 'string' ? body.content : '',
       });
-      return NextResponse.json({ success: true, ...result });
+      const { absolutePath: _absolutePath, ...safeResult } = result;
+      return NextResponse.json({ success: true, ...safeResult });
     }
 
     if (action === 'move_file') {
-      const { sourceRelativePath, destinationRelativePath, description, documentId } = body;
       const historyEntry = await diskManager.moveFile({
-        sourceRelativePath,
-        destinationRelativePath,
-        description,
-        documentId,
+        sourceRelativePath: typeof body.sourceRelativePath === 'string' ? body.sourceRelativePath : '',
+        destinationRelativePath: typeof body.destinationRelativePath === 'string' ? body.destinationRelativePath : '',
+        description: typeof body.description === 'string' ? body.description : 'Operacja użytkownika',
+        documentId: typeof body.documentId === 'string' ? body.documentId : undefined,
       });
       return NextResponse.json({ success: true, historyEntry });
     }
@@ -69,16 +88,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'scan') {
-      const { knownDocuments = [] } = body;
-      const scanResult = await diskManager.scanDiskAndDetectChanges(knownDocuments);
+      const knownDocuments = Array.isArray(body.knownDocuments) ? body.knownDocuments : [];
+      const scanResult = await diskManager.scanDiskAndDetectChanges(knownDocuments as DocumentRecord[]);
       return NextResponse.json({ success: true, scanResult });
     }
 
-    return NextResponse.json({ success: false, error: 'Nieznana akcja' }, { status: 400 });
+    return jsonError('Nieznana akcja.', 400);
   } catch (err: unknown) {
-    return NextResponse.json(
-      { success: false, error: err instanceof Error ? err.message : 'Błąd operacji dyskowej' },
-      { status: 500 }
-    );
+    return jsonError(err instanceof Error ? err.message : 'Błąd operacji dyskowej.', 400);
   }
 }

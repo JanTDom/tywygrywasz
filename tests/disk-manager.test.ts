@@ -183,4 +183,16 @@ describe('Local Disk Manager (Physical Filesystem)', () => {
     expect(split1.subDoc.originalFileName).toContain('str. 1-1');
     expect(split2.subDoc.originalFileName).toContain('str. 2-2');
   });
+
+  it('blocks path traversal and refuses to overwrite an existing original', async () => {
+    await expect(diskManager.createCaseFolder('../poza-sejfem')).rejects.toThrow('Nieprawidłowa nazwa folderu');
+    await expect(diskManager.moveFile({
+      sourceRelativePath: '../sekret.txt',
+      destinationRelativePath: 'Do_uporzadkowania/sekret.txt',
+      description: 'Nieprawidłowa próba',
+    })).rejects.toThrow('poza katalog sejfu');
+
+    await diskManager.writeDocumentFile({ subfolder: 'Do_uporzadkowania', fileName: 'oryginal.txt', content: 'oryginał' });
+    await expect(diskManager.writeDocumentFile({ subfolder: 'Do_uporzadkowania', fileName: 'oryginal.txt', content: 'nadpisanie' })).rejects.toThrow();
+  });
 });

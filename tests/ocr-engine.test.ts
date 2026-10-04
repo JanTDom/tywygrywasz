@@ -38,18 +38,18 @@ describe('LocalOcrEngine', () => {
   it('tworzy niemutowalną wersję OCR bez nadpisywania oryginału', async () => {
     const doc: DocumentRecord = {
       id: 'doc-scan-01',
-      caseId: 'case-01',
-      title: 'Oryginalny skan pisma',
+      caseIds: ['case-01'],
+      type: 'other',
+      direction: 'incoming',
+      origin: 'scan',
       originalFileName: 'skan.pdf',
       mimeType: 'application/pdf',
-      byteSize: 1024,
-      sha256Hex: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      storageKind: 'copied_to_case_subfolder',
+      fileSize: 1024,
+      originalSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca4959911b7852b855',
       subfolder: '01_Otrzymane',
       activeVersionId: 'ver-orig-01',
       createdAt: '2026-10-04T10:00:00Z',
-    };
-
+    }
     const ocrResult = await engine.processImageOrScan({
       fileName: doc.originalFileName,
       mimeType: doc.mimeType,

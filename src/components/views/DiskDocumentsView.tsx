@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ExternalLink,
+  Upload,
 } from 'lucide-react';
 import { DocumentRecord, DocumentVersion, DiskFileInfo, Case, ExtractedField } from '../../domain/types';
 import { SideBySideViewer } from '../document/SideBySideViewer';
@@ -27,6 +28,7 @@ interface DiskDocumentsViewProps {
   diskFiles: DiskFileInfo[];
   extractedFields?: ExtractedField[];
   onScanDisk: () => Promise<void>;
+  onImportFiles: (files: FileList | File[]) => Promise<void>;
   onSplitMultiPageScan: (docId: string) => Promise<void>;
   onRunLocalOcr?: (docId: string) => Promise<void>;
   onSaveCorrection?: (docId: string, text: string, note: string) => Promise<void>;
@@ -42,6 +44,7 @@ export function DiskDocumentsView({
   diskFiles,
   extractedFields = [],
   onScanDisk,
+  onImportFiles,
   onSplitMultiPageScan,
   onRunLocalOcr,
   onSaveCorrection,
@@ -87,9 +90,15 @@ export function DiskDocumentsView({
             Fizyczny katalog <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs text-slate-800">Moje_sprawy/</code>.
             Pliki nie są wysyłane na serwer zewnętrzny; OCR i ekstrakcja działają lokalnie.
           </p>
+          <p className="text-xs text-slate-500 mt-2">Obsługiwane formaty: DOC, RTF, TXT, PDF, JPG, JPEG i PNG.</p>
         </div>
 
-        <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3">
+          <label className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm cursor-pointer">
+            <input type="file" multiple accept=".doc,.rtf,.txt,.pdf,.jpg,.jpeg,.png" className="sr-only" onChange={(event) => { if (event.target.files) { void onImportFiles(event.target.files); event.currentTarget.value = ''; } }} />
+            <Upload className="w-3.5 h-3.5" />
+            <span>Dodaj pliki z dysku</span>
+          </label>
           <button
             type="button"
             onClick={onScanDisk}
@@ -137,7 +146,7 @@ export function DiskDocumentsView({
         {/* Left column: List of files & disk structure (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FolderOpen className="w-4 h-4 text-slate-600" />
                 <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">

@@ -7,19 +7,23 @@ describe('E2EESyncEngine (Zero-Knowledge AES-GCM Client Sync)', () => {
   const testPassphrase = 'SuperMocneHasloSejfu2026!#$';
 
   const mockManifest: VaultManifest = {
+    manifestVersion: '1.0',
     vaultId: 'sejf-test-sync',
+    workspacePath: 'Moje_sprawy',
+    createdAt: '2026-10-04T12:00:00Z',
     cases: [
       {
         id: 'c-sync-01',
+        folderName: 'S-0001_Test',
         title: 'Sprawa synchronizowana',
         procedureType: 'administrative',
         opponentType: 'public_authority',
         authorityOrOpponentName: 'Urząd Miejski',
         goalDescription: 'Test synchronizacji',
-        currentStatus: 'active',
-        isSocialInterest: false,
-        diskFolderPath: 'Moje_sprawy/S-0001_Test',
-        subfolders: ['00_Plan_i_opis', '01_Otrzymane'],
+        authorityJurisdictionReason: 'Testowa właściwość organu',
+        status: 'analyzing',
+        nextAction: 'Zweryfikuj dokumenty testowe.',
+        missingFacts: [],
         createdAt: '2026-10-04T12:00:00Z',
         updatedAt: '2026-10-04T12:00:00Z',
       },
@@ -28,7 +32,12 @@ describe('E2EESyncEngine (Zero-Knowledge AES-GCM Client Sync)', () => {
     documentVersions: [],
     extractedFields: [],
     events: [],
+    deadlines: [],
+    legalSources: [],
+    legalAnalyses: [],
     letters: [],
+    relations: [],
+    inboxProposals: [],
     history: [],
   };
 

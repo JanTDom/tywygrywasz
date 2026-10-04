@@ -39,6 +39,8 @@ export const CASE_SUBFOLDERS: CaseSubfolder[] = [
   '07_Wynik_sprawy',
 ];
 
+const VALID_DOCUMENT_SUBFOLDERS: CaseSubfolder[] = [...CASE_SUBFOLDERS, 'Do_uporzadkowania'];
+
 export interface DiskScanResult {
   scannedAt: string;
   totalFilesOnDisk: number;
@@ -53,6 +55,21 @@ export class LocalDiskManager {
 
   constructor(rootDir: string) {
     this.rootDir = path.resolve(rootDir);
+  }
+
+  private resolveSafeRelative(relativePath: string): string {
+    if (!relativePath || path.isAbsolute(relativePath)) throw new Error('Ścieżka musi być względna względem sejfu.');
+    const resolved = path.resolve(this.rootDir, relativePath);
+    const relative = path.relative(this.rootDir, resolved);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('Ścieżka wychodzi poza katalog sejfu.');
+    }
+    return resolved;
+  }
+
+  private safeFolderName(folderName: string): string {
+    if (!folderName || folderName.includes('..') || /[/\\]/.test(folderName)) throw new Error('Nieprawidłowa nazwa folderu sprawy.');
+    return folderName.replace(/[?%*:|"<>]/g, '_');
   }
 
   /**
@@ -72,7 +89,7 @@ export class LocalDiskManager {
    * Tworzenie katalogu konkretnej sprawy wraz z podkatalogami
    */
   public async createCaseFolder(folderName: string): Promise<string> {
-    const caseDir = path.join(this.rootDir, folderName);
+    const caseDir = this.resolveSafeRelative(this.safeFolderName(folderName));
     if (!fs.existsSync(caseDir)) {
       await fsPromises.mkdir(caseDir, { recursive: true });
     }
@@ -95,13 +112,15 @@ export class LocalDiskManager {
     content: string | Uint8Array;
   }): Promise<{ relativePath: string; absolutePath: string; sha256: string; size: number }> {
     await this.initializeWorkspace();
+    if (!VALID_DOCUMENT_SUBFOLDERS.includes(params.subfolder)) throw new Error('Nieprawidłowy podfolder dokumentu.');
 
     let targetDir: string;
     if (params.subfolder === 'Do_uporzadkowania' || !params.folderName) {
       targetDir = path.join(this.rootDir, 'Do_uporzadkowania');
     } else {
-      await this.createCaseFolder(params.folderName);
-      targetDir = path.join(this.rootDir, params.folderName, params.subfolder);
+      const safeFolderName = this.safeFolderName(params.folderName);
+      await this.createCaseFolder(safeFolderName);
+      targetDir = path.join(this.rootDir, safeFolderName, params.subfolder);
     }
 
     if (!fs.existsSync(targetDir)) {
@@ -117,7 +136,7 @@ export class LocalDiskManager {
       ? Buffer.from(params.content, 'utf-8')
       : Buffer.from(params.content);
 
-    await fsPromises.writeFile(absolutePath, buffer);
+    await fsPromises.writeFile(absolutePath, buffer, { flag: 'wx' });
     const sha256 = await computeSha256(buffer);
 
     return {
@@ -137,12 +156,13 @@ export class LocalDiskManager {
     description: string;
     documentId?: string;
   }): Promise<DiskOperationHistoryEntry> {
-    const srcAbs = path.join(this.rootDir, params.sourceRelativePath);
-    const destAbs = path.join(this.rootDir, params.destinationRelativePath);
+    const srcAbs = this.resolveSafeRelative(params.sourceRelativePath);
+    const destAbs = this.resolveSafeRelative(params.destinationRelativePath);
 
     if (!fs.existsSync(srcAbs)) {
       throw new Error(`Plik źródłowy nie istnieje na dysku: ${params.sourceRelativePath}`);
     }
+    if (fs.existsSync(destAbs)) throw new Error('Plik docelowy już istnieje; oryginał nie został nadpisany.');
 
     const destDir = path.dirname(destAbs);
     if (!fs.existsSync(destDir)) {

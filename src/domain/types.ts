@@ -31,6 +31,44 @@ export type OpponentType =
   | 'individual'
   | 'institution';
 
+/**
+ * Instytucja lub inna strona występująca w sprawie. Jedna sprawa może mieć
+ * wiele takich rekordów (np. organ I instancji, organ odwoławczy i organ
+ * pośredniczący). Dane pozostają częścią lokalnego, szyfrowanego manifestu.
+ */
+export type CaseInstitutionKind =
+  | 'public_authority'
+  | 'office'
+  | 'court'
+  | 'company'
+  | 'organization'
+  | 'individual'
+  | 'other';
+
+export type CaseInstitutionRole =
+  | 'opponent'
+  | 'issuing_authority'
+  | 'appeal_authority'
+  | 'intermediary'
+  | 'recipient'
+  | 'consulted'
+  | 'witness'
+  | 'expert'
+  | 'other';
+
+export interface CaseInstitution {
+  id: string;
+  name: string;
+  kind: CaseInstitutionKind;
+  roles: CaseInstitutionRole[];
+  isPrimary?: boolean;
+  addressOrChannel?: string;
+  jurisdictionReason?: string;
+  caseSignature?: string;
+  sourceDocumentIds?: string[];
+  active?: boolean;
+}
+
 export interface Case {
   id: string; // e.g. "S-0001"
   folderName: string; // e.g. "S-0001_Pozwolenie_na_budowe"
@@ -40,11 +78,44 @@ export interface Case {
   opponentType: OpponentType;
   authorityOrOpponentName: string;
   authorityJurisdictionReason: string;
+  /**
+   * New multi-institution model. Optional to allow old encrypted manifests to
+   * be opened and migrated without losing the legacy singular fields above.
+   */
+  institutions?: CaseInstitution[];
   status: CaseStatus;
   nextAction: string;
   missingFacts: string[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Zwraca aktywne instytucje także dla starych spraw bez pola institutions. */
+export function getCaseInstitutions(caseRecord: Case): CaseInstitution[] {
+  if (caseRecord.institutions?.length) {
+    const activeInstitutions = caseRecord.institutions.filter((institution) => institution.active !== false);
+    if (activeInstitutions.length) return activeInstitutions;
+  }
+  return [{
+    id: `institution-${caseRecord.id}-primary`,
+    name: caseRecord.authorityOrOpponentName,
+    kind: caseRecord.opponentType === 'public_authority'
+      ? 'public_authority'
+      : caseRecord.opponentType === 'company'
+      ? 'company'
+      : caseRecord.opponentType === 'individual'
+      ? 'individual'
+      : 'organization',
+    roles: ['opponent'],
+    isPrimary: true,
+    jurisdictionReason: caseRecord.authorityJurisdictionReason,
+    active: true,
+  }];
+}
+
+export function getPrimaryCaseInstitution(caseRecord: Case): CaseInstitution {
+  const institutions = getCaseInstitutions(caseRecord);
+  return institutions.find((institution) => institution.isPrimary) || institutions[0];
 }
 
 export type DocumentType =
@@ -83,6 +154,8 @@ export type CaseSubfolder =
 export interface DocumentRecord {
   id: string;
   caseIds: string[];
+  /** Instytucje, których dotyczy korespondencja lub dowód. */
+  institutionIds?: string[];
   type: DocumentType;
   direction: CorrespondenceDirection;
   origin: DocumentOrigin;
@@ -184,6 +257,7 @@ export type DatePrecision = 'exact' | 'uncertain' | 'unknown';
 export interface CaseEvent {
   id: string;
   caseId: string;
+  institutionId?: string;
   type: EventType;
   title: string;
   date: string; // YYYY-MM-DD or 'unknown'
@@ -199,6 +273,7 @@ export type DeadlineStatus = 'unknown' | 'active' | 'expired' | 'suspended';
 export interface ProceduralDeadline {
   id: string;
   caseId: string;
+  institutionId?: string;
   baseEventId: string;
   ruleVersion: string;
   legalBasisId: string;
@@ -238,6 +313,7 @@ export interface LegalSource {
 
 export interface CaseParty {
   id: string;
+  institutionId?: string;
   name: string;
   role: 'citizen' | 'opponent' | 'authority' | 'witness' | 'expert';
   stance: string;
@@ -358,6 +434,8 @@ export interface LetterDraft {
     name: string;
     addressOrChannel: string;
     intermediaryAuthority?: string;
+    institutionId?: string;
+    intermediaryInstitutionId?: string;
   };
   sender: {
     placeholderName: string;
@@ -394,6 +472,8 @@ export interface InboxProposal {
   documentTitle: string;
   originalFileName: string;
   proposedCaseId?: string;
+  proposedCaseIds?: string[];
+  matchedInstitutionIds?: string[];
   proposedSubfolder: CaseSubfolder;
   confidence: number;
   rationale: string;

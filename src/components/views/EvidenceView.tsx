@@ -64,6 +64,16 @@ export function EvidenceView({
     }
   };
 
+  const getPartyRoleLabel = (role: LegalAnalysis['parties'][number]['role']) => {
+    switch (role) {
+      case 'citizen': return 'Użytkownik';
+      case 'authority': return 'Organ / instytucja';
+      case 'witness': return 'Świadek';
+      case 'expert': return 'Ekspert';
+      default: return 'Druga strona';
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -108,7 +118,7 @@ export function EvidenceView({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">{p.name}</span>
                     <span className="text-[10px] uppercase font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">
-                      {p.role === 'citizen' ? 'Użytkownik' : 'Druga strona'}
+                      {getPartyRoleLabel(p.role)}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">

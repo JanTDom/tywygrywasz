@@ -19,6 +19,7 @@ import {
   DocumentVersion,
   ExtractedField,
   CaseEvent,
+  CaseInstitution,
   ProceduralDeadline,
   LegalSource,
   LegalAnalysis,
@@ -59,6 +60,7 @@ export class LocalVault {
     authorityOrOpponentName?: string;
     authorityName?: string;
     authorityJurisdictionReason: string;
+    institutions?: CaseInstitution[];
   }): Case {
     const caseCount = this.cases.size + 1;
     const paddedNum = String(caseCount).padStart(4, '0');
@@ -68,6 +70,29 @@ export class LocalVault {
     const now = new Date().toISOString();
     const effectiveAuthorityName =
       params.authorityOrOpponentName || params.authorityName || 'Organ lub druga strona';
+    const suppliedInstitutions: CaseInstitution[] = params.institutions?.length
+      ? params.institutions.map((institution, index) => ({
+          ...institution,
+          id: institution.id || `institution-${id}-${index + 1}`,
+          roles: institution.roles?.length ? institution.roles : ['opponent'] as CaseInstitution['roles'],
+          active: institution.active !== false,
+        }))
+      : [{
+          id: `institution-${id}-primary`,
+          name: effectiveAuthorityName,
+          kind: params.opponentType === 'public_authority' ? 'public_authority' : params.opponentType === 'company' ? 'company' : params.opponentType === 'individual' ? 'individual' : 'organization',
+          roles: ['opponent'] as CaseInstitution['roles'],
+          isPrimary: true,
+          jurisdictionReason: params.authorityJurisdictionReason,
+          active: true,
+        } satisfies CaseInstitution];
+    const primaryIndex = suppliedInstitutions.findIndex((institution) => institution.isPrimary) >= 0
+      ? suppliedInstitutions.findIndex((institution) => institution.isPrimary)
+      : 0;
+    const institutions: CaseInstitution[] = suppliedInstitutions.map((institution, index) => ({
+      ...institution,
+      isPrimary: index === primaryIndex,
+    }));
 
     const newCase: Case = {
       id,
@@ -78,6 +103,7 @@ export class LocalVault {
       opponentType: params.opponentType || 'public_authority',
       authorityOrOpponentName: effectiveAuthorityName,
       authorityJurisdictionReason: params.authorityJurisdictionReason,
+      institutions,
       status: 'intake',
       nextAction: 'Dodaj dokumenty sprawy lub sprawdź skrzynkę „Do uporządkowania”.',
       missingFacts: ['Brak potwierdzonej daty doręczenia pisma'],
@@ -99,6 +125,7 @@ export class LocalVault {
     content: string; // text or raw payload
     subfolder?: CaseSubfolder;
     diskRelativePath?: string;
+    institutionIds?: string[];
   }): Promise<{ document: DocumentRecord; initialVersion: DocumentVersion; isDuplicate: boolean }> {
     const contentHash = await computeSha256(params.content);
 
@@ -137,6 +164,7 @@ export class LocalVault {
     const docRecord: DocumentRecord = {
       id: docId,
       caseIds: params.caseId ? [params.caseId] : [],
+      institutionIds: params.institutionIds,
       type: params.type,
       direction: params.direction,
       origin: params.origin,
@@ -285,7 +313,9 @@ export class LocalVault {
     const oldPath = doc.diskRelativePath || `${this.workspacePath}/Do_uporzadkowania/${doc.originalFileName}`;
     const newPath = `${this.workspacePath}/${targetCase.folderName}/${targetSubfolder}/${doc.originalFileName}`;
 
-    doc.caseIds = [targetCase.id];
+    // Akceptacja propozycji nie może odłączać dokumentu od innych spraw.
+    // Jeden oryginał może być wspólnym dowodem w wielu sprawach.
+    doc.caseIds = Array.from(new Set([...doc.caseIds, targetCase.id]));
     doc.subfolder = targetSubfolder;
     doc.diskRelativePath = newPath;
 
@@ -326,7 +356,7 @@ export class LocalVault {
   // --- Export and Backup ---
   public toManifest(): VaultManifest {
     return {
-      manifestVersion: '2.0',
+      manifestVersion: '2.1',
       vaultId: this.vaultId,
       workspacePath: this.workspacePath,
       createdAt: new Date().toISOString(),
@@ -362,7 +392,30 @@ export class LocalVault {
 
   public static fromManifest(manifest: VaultManifest): LocalVault {
     const vault = new LocalVault(manifest.vaultId, manifest.workspacePath || 'Moje_sprawy');
-    manifest.cases.forEach((c) => vault.cases.set(c.id, c));
+    manifest.cases.forEach((c) => {
+      // Migracja starszych sejfów: pojedynczy organ staje się pierwszą
+      // instytucją, a stare pole pozostaje dla kompatybilności modułów.
+      const sourceInstitutions: CaseInstitution[] = c.institutions?.length
+        ? c.institutions
+        : [{
+            id: `institution-${c.id}-primary`,
+            name: c.authorityOrOpponentName,
+            kind: c.opponentType === 'public_authority' ? 'public_authority' : c.opponentType === 'company' ? 'company' : c.opponentType === 'individual' ? 'individual' : 'organization',
+            roles: ['opponent'] as CaseInstitution['roles'],
+            isPrimary: true,
+            jurisdictionReason: c.authorityJurisdictionReason,
+            active: true,
+          } satisfies CaseInstitution];
+      const firstPrimaryIndex = Math.max(0, sourceInstitutions.findIndex((institution) => institution.isPrimary));
+      const migratedInstitutions = sourceInstitutions.map((institution, index) => ({
+        ...institution,
+        id: institution.id || `institution-${c.id}-${index + 1}`,
+        roles: institution.roles?.length ? institution.roles : ['opponent'] as CaseInstitution['roles'],
+        isPrimary: index === firstPrimaryIndex,
+        active: institution.active !== false,
+      }));
+      vault.cases.set(c.id, { ...c, institutions: migratedInstitutions });
+    });
     manifest.documents.forEach((d) => vault.documents.set(d.id, d));
     manifest.documentVersions.forEach((v) => vault.documentVersions.set(v.id, v));
     manifest.extractedFields.forEach((f) => vault.extractedFields.set(f.id, f));

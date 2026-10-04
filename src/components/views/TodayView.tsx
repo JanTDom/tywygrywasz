@@ -19,7 +19,7 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import { Case, ProceduralDeadline } from '../../domain/types';
+import { Case, ProceduralDeadline, getCaseInstitutions } from '../../domain/types';
 import { ViewType } from '../Navigation';
 
 interface TodayViewProps {
@@ -72,7 +72,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
                 ? 'Zacznij od dokumentu z dysku. Pokażemy Ci, co odczytaliśmy i gdzie go przypisać.'
                 : 'Opisz własnymi słowami, co chcesz osiągnąć. Nazwa procedury nie jest potrzebna.'}
           </p>
-          {primaryCase && <div className="dashboard-next-case"><span>{primaryCase.title}</span><span aria-hidden="true">·</span><span>{primaryCase.authorityOrOpponentName}</span></div>}
+          {primaryCase && <div className="dashboard-next-case"><span>{primaryCase.title}</span><span aria-hidden="true">·</span><span>{getCaseInstitutions(primaryCase).map((institution) => institution.name).join(' · ')}</span></div>}
         </div>
         <div className="dashboard-next-action">
           {primaryDeadline ? (

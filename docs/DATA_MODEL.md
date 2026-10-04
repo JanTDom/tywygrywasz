@@ -6,12 +6,13 @@ muszą zachować rozdzielenie publicznych źródeł i prywatnego materiału.
 
 | Encja | Istotne pola / relacje |
 |---|---|
-| Case | ID, cel, tryb, urząd/właściwość z uzasadnieniem, status, następna czynność, lista braków |
+| Case | ID, cel, tryb, status, następna czynność, lista braków oraz `institutions[]` — wszystkie organy, sądy, firmy i inne strony występujące w sprawie |
+| CaseInstitution | ID, nazwa, typ, role (np. organ prowadzący, odwoławczy, pośredniczący, adresat, świadek), kanał/adres, właściwość, sygnatura i źródła; jedna sprawa może mieć wiele rekordów |
 | Document | ID, powiązania ze sprawami, typ, kierunek korespondencji, pochodzenie, oryginalna nazwa, MIME, rozmiar, hash oryginału, lokalny locator |
 | DocumentVersion | ID dokumentu, wersja, rodzic, rodzaj: original/OCR/correction/draft/export/redacted, hash, data, narzędzie, autor zatwierdzenia |
 | ExtractedField | wartość, status unknown/proposed/confirmed/disputed, dokument+wersja+strona+fragment, metoda, pewność OCR, potwierdzenie |
 | Event | rodzaj, data dokumentu/wysłania/doręczenia/zdarzenia, precyzja daty, dowód, potwierdzenie |
-| Correspondence | kierunek, dokument, adresat, kanał, podpis jeśli potwierdzony, deklaracja wysłania, dowód złożenia/doręczenia |
+| Correspondence | kierunek, dokument, lista adresatów i pośredników z `institutionId`, kanał, podpis jeśli potwierdzony, deklaracja wysłania, dowód złożenia/doręczenia |
 | Deadline | zdarzenie bazowe, wersja reguły, źródło prawa, stan prawny, wynik lub unknown, założenia, historia wyliczenia |
 | LegalSource / SourceVersion | URL, identyfikator, organ, typ, wersja, obowiązywanie, data pobrania, hash, status aktualizacji |
 | LegalAnalysis | problem, ustalone fakty, braki, tezy+źródła, warianty, kontrargumenty, status weryfikacji, zależne wersje |

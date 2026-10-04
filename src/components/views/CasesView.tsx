@@ -14,7 +14,13 @@ import {
   CheckCircle2,
   Scale,
 } from 'lucide-react';
-import { Case, ProcedureType, OpponentType, CaseStatus } from '../../domain/types';
+import {
+  Case,
+  CaseInstitutionKind,
+  CaseInstitutionRole,
+  ProcedureType,
+  OpponentType,
+} from '../../domain/types';
 import { ViewType } from '../Navigation';
 
 interface CasesViewProps {
@@ -42,8 +48,11 @@ export function CasesView({
   const [goalDescription, setGoalDescription] = useState('');
   const [procedureType, setProcedureType] = useState<ProcedureType>('administrative');
   const [opponentType, setOpponentType] = useState<OpponentType>('public_authority');
-  const [authorityOrOpponentName, setAuthorityOrOpponentName] = useState('');
   const [authorityJurisdictionReason, setAuthorityJurisdictionReason] = useState('');
+  type InstitutionDraft = { name: string; role: CaseInstitutionRole; kind: CaseInstitutionKind };
+  const [institutionDrafts, setInstitutionDrafts] = useState<InstitutionDraft[]>([
+    { name: '', role: 'issuing_authority', kind: 'public_authority' },
+  ]);
 
   const filteredCases = cases.filter((c) => {
     if (filterType === 'all') return true;
@@ -52,22 +61,61 @@ export function CasesView({
 
   const handleSubmitNewCase = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !authorityOrOpponentName) return;
+    const institutions = institutionDrafts
+      .map((institution, index) => ({
+        id: `institution-${Date.now()}-${index + 1}`,
+        name: institution.name.trim(),
+        roles: [institution.role],
+        kind: institution.kind,
+        isPrimary: index === 0,
+      }))
+      .filter((institution) => institution.name.length > 0);
+
+    if (!title || institutions.length === 0) return;
+
+    const primaryInstitution = institutions[0];
 
     onCreateCase({
       title,
       goalDescription,
       procedureType,
       opponentType,
-      authorityOrOpponentName,
+      // Zachowujemy pole legacy dla starych analiz i kopii zapasowych. Wszystkie
+      // instytucje są przechowywane w `institutions`.
+      authorityOrOpponentName: primaryInstitution.name,
       authorityJurisdictionReason,
+      institutions,
     });
 
     setTitle('');
     setGoalDescription('');
-    setAuthorityOrOpponentName('');
     setAuthorityJurisdictionReason('');
+    setInstitutionDrafts([{ name: '', role: 'issuing_authority', kind: 'public_authority' }]);
     setIsModalOpen(false);
+  };
+
+  const addInstitutionDraft = () => {
+    setInstitutionDrafts((current) => [
+      ...current,
+      { name: '', role: 'intermediary', kind: opponentType === 'institution' ? 'organization' : opponentType },
+    ]);
+  };
+
+  const updateInstitutionDraft = (
+    index: number,
+    patch: Partial<InstitutionDraft>
+  ) => {
+    setInstitutionDrafts((current) =>
+      current.map((institution, institutionIndex) =>
+        institutionIndex === index ? { ...institution, ...patch } : institution
+      )
+    );
+  };
+
+  const removeInstitutionDraft = (index: number) => {
+    setInstitutionDrafts((current) =>
+      current.length <= 1 ? current : current.filter((_, institutionIndex) => institutionIndex !== index)
+    );
   };
 
   const getOpponentIcon = (type: OpponentType) => {
@@ -193,10 +241,42 @@ export function CasesView({
                   {c.title}
                 </h2>
 
-                <div className="mt-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-800">Druga strona: </span>
-                  <span>{c.authorityOrOpponentName}</span>
-                </div>
+                {(() => {
+                  const institutions = c.institutions?.length
+                    ? c.institutions
+                    : [{
+                        id: `${c.id}-legacy-institution`,
+                        name: c.authorityOrOpponentName,
+                        roles: ['issuing_authority' as const],
+                        kind: c.opponentType,
+                        isPrimary: true,
+                      }];
+                  const primaryInstitution = institutions.find((institution) => institution.isPrimary) || institutions[0];
+
+                  return (
+                    <div className="mt-2 text-xs text-slate-600">
+                      <span className="font-semibold text-slate-800">
+                        {institutions.length === 1 ? 'Druga strona: ' : `Instytucje (${institutions.length}): `}
+                      </span>
+                      <span>{primaryInstitution.name}</span>
+                      {institutions.length > 1 && (
+                        <span className="text-slate-500"> + {institutions.length - 1} kolejnych</span>
+                      )}
+                      {institutions.length > 1 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {institutions.map((institution) => (
+                            <span
+                              key={institution.id}
+                              className="inline-flex items-center rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700"
+                            >
+                              {institution.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="mt-2 p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-700">
                   <span className="font-semibold text-slate-800">Cel: </span>
@@ -310,7 +390,13 @@ export function CasesView({
                   </label>
                   <select
                     value={opponentType}
-                    onChange={(e) => setOpponentType(e.target.value as OpponentType)}
+                    onChange={(e) => {
+                      const nextOpponentType = e.target.value as OpponentType;
+                      setOpponentType(nextOpponentType);
+                      updateInstitutionDraft(0, {
+                        kind: nextOpponentType === 'institution' ? 'organization' : nextOpponentType,
+                      });
+                    }}
                     className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
                   >
                     <option value="public_authority">Organ publiczny / Urząd</option>
@@ -322,17 +408,82 @@ export function CasesView({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-800 mb-1">
-                  Nazwa organu lub drugiej strony
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="np. Prezydent m.st. Warszawy albo Jan Nowak"
-                  value={authorityOrOpponentName}
-                  onChange={(e) => setAuthorityOrOpponentName(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-800">
+                    Instytucje i strony w sprawie
+                  </label>
+                  <span className="text-[11px] text-slate-500">Możesz dodać kilka</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Dodaj organ prowadzący, organ odwoławczy, sąd lub inne podmioty. Pierwsza pozycja będzie głównym adresatem.
+                </p>
+                <div className="space-y-2">
+                  {institutionDrafts.map((institution, index) => (
+                    <div key={`institution-row-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                      <div className="flex items-start gap-2">
+                        <div className="flex-1 space-y-2">
+                          <input
+                            type="text"
+                            required={index === 0}
+                            placeholder={index === 0 ? 'np. Prezydent m.st. Warszawy' : 'np. Samorządowe Kolegium Odwoławcze'}
+                            value={institution.name}
+                            onChange={(e) => updateInstitutionDraft(index, { name: e.target.value })}
+                            className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <select
+                              value={institution.role}
+                              onChange={(e) => updateInstitutionDraft(index, { role: e.target.value as CaseInstitutionRole })}
+                              aria-label="Rola instytucji w sprawie"
+                              className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                            >
+                              <option value="issuing_authority">Organ prowadzący</option>
+                              <option value="appeal_authority">Organ odwoławczy</option>
+                              <option value="intermediary">Organ pośredniczący</option>
+                              <option value="recipient">Adresat pisma</option>
+                              <option value="opponent">Druga strona</option>
+                              <option value="consulted">Instytucja konsultowana</option>
+                              <option value="witness">Świadek</option>
+                              <option value="expert">Ekspert</option>
+                              <option value="other">Inna rola</option>
+                            </select>
+                            <select
+                              value={institution.kind}
+                              onChange={(e) => updateInstitutionDraft(index, { kind: e.target.value as CaseInstitutionKind })}
+                              aria-label="Typ instytucji"
+                              className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                            >
+                              <option value="public_authority">Organ publiczny</option>
+                              <option value="office">Urząd</option>
+                              <option value="court">Sąd</option>
+                              <option value="company">Firma</option>
+                              <option value="organization">Instytucja / organizacja</option>
+                              <option value="other">Inny podmiot</option>
+                            </select>
+                          </div>
+                        </div>
+                        {institutionDrafts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeInstitutionDraft(index)}
+                            className="mt-1 rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-rose-600"
+                            aria-label={`Usuń instytucję ${index + 1}`}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={addInstitutionDraft}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-slate-500 hover:bg-white"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Dodaj kolejną instytucję
+                </button>
               </div>
 
               <div>

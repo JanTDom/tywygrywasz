@@ -14,7 +14,7 @@ import {
   ExternalLink,
   Check,
 } from 'lucide-react';
-import { Case, LetterDraft, LetterType, LetterChecklistItem } from '../../domain/types';
+import { Case, LetterDraft, LetterType, LetterChecklistItem, getCaseInstitutions } from '../../domain/types';
 import {
   createModularLetterDraft,
   formatLetterPlainText,
@@ -60,19 +60,28 @@ export function LettersView({
   const handleGenerateNew = () => {
     if (!currentCase) return;
 
+    const institutions = getCaseInstitutions(currentCase);
+    const primaryInstitution = institutions.find((institution) => institution.isPrimary) || institutions[0];
+    const issuingInstitution = institutions.find((institution) => institution.roles.includes('issuing_authority') || institution.roles.includes('intermediary')) || primaryInstitution;
+    const appealInstitution = institutions.find((institution) => institution.roles.includes('appeal_authority') || institution.roles.includes('recipient'));
+
     let title = 'Projekt pisma';
-    let recipientName = currentCase.authorityOrOpponentName;
-    let recipientAddress = 'Warszawa';
+    let recipientName = primaryInstitution.name;
+    let recipientAddress = primaryInstitution.addressOrChannel || 'Adres/kanał do uzupełnienia';
+    let recipientInstitutionId = primaryInstitution.id;
     let demands: string[] = [currentCase.goalDescription];
     let factualBasis = `Działając w sprawie ${currentCase.title}, wnoszę o realizację uprawnień wynikających z przepisów prawa.`;
     let legalJustification = currentCase.authorityJurisdictionReason;
-    let intermediaryAuthority = undefined;
+    let intermediaryAuthority: string | undefined;
+    let intermediaryInstitutionId: string | undefined;
 
     if (selectedLetterType === 'odwolanie') {
       title = `Odwołanie od decyzji (${currentCase.title})`;
-      recipientName = 'Samorządowe Kolegium Odwoławcze w Warszawie';
-      intermediaryAuthority = currentCase.authorityOrOpponentName;
-      recipientAddress = `za pośrednictwem: ${currentCase.authorityOrOpponentName}`;
+      recipientName = appealInstitution?.name || 'Samorządowe Kolegium Odwoławcze w Warszawie';
+      recipientInstitutionId = appealInstitution?.id || recipientInstitutionId;
+      intermediaryAuthority = issuingInstitution.name;
+      intermediaryInstitutionId = issuingInstitution.id;
+      recipientAddress = appealInstitution?.addressOrChannel || `za pośrednictwem: ${issuingInstitution.name}`;
       demands = [
         'Uchylenie zaskarżonej decyzji w całości i wydanie rozstrzygnięcia co do istoty sprawy',
         'Wstrzymanie natychmiastowego wykonania decyzji do czasu rozpatrzenia odwołania',
@@ -93,7 +102,8 @@ export function LettersView({
       legalJustification = 'Art. 37 § 1 pkt 1 i § 3 Kodeksu postępowania administracyjnego.';
     } else if (selectedLetterType === 'reklamacja_konsumencka') {
       title = `Reklamacja z tytułu braku zgodności towaru z umową`;
-      recipientName = currentCase.authorityOrOpponentName;
+      recipientName = primaryInstitution.name;
+      recipientInstitutionId = primaryInstitution.id;
       demands = ['Nieodpłatna naprawa towaru lub wymiana na nowy wolny od wad'];
       factualBasis = 'Zakupiony towar wykazuje wadę uniemożliwiającą normalne użytkowanie.';
       legalJustification = 'Art. 43d ust. 1 ustawy z dnia 30 maja 2014 r. o prawach konsumenta.';
@@ -104,23 +114,28 @@ export function LettersView({
       legalJustification = 'Art. 455 i art. 476 ustawy z dnia 23 kwietnia 1964 r. - Kodeks cywilny.';
     } else if (selectedLetterType === 'odwolanie_podatkowe') {
       title = `Odwołanie od decyzji podatkowej`;
-      recipientName = 'Dyrektor Izby Administracji Skarbowej w Warszawie';
-      intermediaryAuthority = currentCase.authorityOrOpponentName;
-      recipientAddress = `za pośrednictwem: ${currentCase.authorityOrOpponentName}`;
+      recipientName = appealInstitution?.name || 'Dyrektor Izby Administracji Skarbowej w Warszawie';
+      recipientInstitutionId = appealInstitution?.id || recipientInstitutionId;
+      intermediaryAuthority = issuingInstitution.name;
+      intermediaryInstitutionId = issuingInstitution.id;
+      recipientAddress = appealInstitution?.addressOrChannel || `za pośrednictwem: ${issuingInstitution.name}`;
       demands = ['Uchylenie zaskarżonej decyzji w całości i umorzenie postępowania podatkowego'];
       factualBasis = 'Organ podatkowy bezzasadnie zakwestionował koszty uzyskania przychodów oraz prawo do odliczenia VAT.';
       legalJustification = 'Art. 220 § 1 i art. 233 § 1 pkt 2 lit. a ustawy z dnia 29 sierpnia 1997 r. - Ordynacja podatkowa.';
     } else if (selectedLetterType === 'odwolanie_zus') {
       title = `Odwołanie od decyzji ZUS`;
-      recipientName = 'Sąd Okręgowy w Warszawie - Sąd Pracy i Ubezpieczeń Społecznych';
-      intermediaryAuthority = currentCase.authorityOrOpponentName;
-      recipientAddress = `za pośrednictwem: ${currentCase.authorityOrOpponentName}`;
+      recipientName = appealInstitution?.name || 'Sąd Okręgowy w Warszawie - Sąd Pracy i Ubezpieczeń Społecznych';
+      recipientInstitutionId = appealInstitution?.id || recipientInstitutionId;
+      intermediaryAuthority = issuingInstitution.name;
+      intermediaryInstitutionId = issuingInstitution.id;
+      recipientAddress = appealInstitution?.addressOrChannel || `za pośrednictwem: ${issuingInstitution.name}`;
       demands = ['Zmiana zaskarżonej decyzji i przyznanie ubezpieczonemu prawa do świadczenia'];
       factualBasis = 'Ubezpieczony spełnił wszystkie przesłanki ustawowe warunkujące nabycie prawa do świadczenia.';
       legalJustification = 'Art. 83 ust. 2 ustawy o systemie ubezpieczeń społecznych w zw. z art. 477^9 Kodeksu postępowania cywilnego.';
     } else if (selectedLetterType === 'wezwanie_pracownicze') {
       title = `Wniosek o sprostowanie świadectwa pracy`;
-      recipientName = currentCase.authorityOrOpponentName;
+      recipientName = primaryInstitution.name;
+      recipientInstitutionId = primaryInstitution.id;
       demands = ['Sprostowanie treści świadectwa pracy w punkcie dotyczącym trybu rozwiązania stosunku pracy'];
       factualBasis = 'Pracodawca błędnie wskazał jednostronne rozwiązanie, pomijając zgodne porozumienie stron.';
       legalJustification = 'Art. 97 § 2^1 ustawy z dnia 26 czerwca 1974 r. - Kodeks pracy.';
@@ -145,6 +160,12 @@ export function LettersView({
         { id: 'att-3', title: 'Wypis i wyrys z rejestru gruntów', included: true },
       ],
     });
+
+    // Zachowaj wybór ścieżki pisma w zaszyfrowanym sejfie: adresat i organ,
+    // za którego pośrednictwem pismo jest składane, mogą być różnymi
+    // instytucjami w tej samej sprawie.
+    draft.recipient.institutionId = recipientInstitutionId;
+    draft.recipient.intermediaryInstitutionId = intermediaryInstitutionId;
 
     onCreateLetter(draft);
     setSelectedLetterId(draft.id);

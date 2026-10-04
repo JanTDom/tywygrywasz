@@ -40,6 +40,7 @@ export function InboxView({
   const [customCaseId, setCustomCaseId] = useState<string>('');
   const [customSubfolder, setCustomSubfolder] = useState<CaseSubfolder>('01_Otrzymane');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [candidateCaseByDoc, setCandidateCaseByDoc] = useState<Record<string, string>>({});
 
   const subfolderOptions: { id: CaseSubfolder; label: string }[] = [
     { id: '00_Plan_i_opis', label: '00_Plan_i_opis' },
@@ -115,7 +116,15 @@ export function InboxView({
           const confidencePercent = proposal ? Math.round(proposal.confidence * 100) : 40;
           const isSelected = selectedDocId === doc.id;
 
-          const suggestedCase = cases.find((c) => c.id === proposal?.proposedCaseId);
+          const candidateCaseIds = proposal?.proposedCaseIds?.length
+            ? proposal.proposedCaseIds
+            : proposal?.proposedCaseId
+            ? [proposal.proposedCaseId]
+            : [];
+          const selectedCandidateCaseId = proposal
+            ? candidateCaseByDoc[doc.id] || proposal.proposedCaseId || (candidateCaseIds.length === 1 ? candidateCaseIds[0] : '')
+            : '';
+          const suggestedCase = cases.find((c) => c.id === selectedCandidateCaseId);
 
           return (
             <div
@@ -159,9 +168,24 @@ export function InboxView({
                   <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
                     <Sparkles className="w-3.5 h-3.5 text-slate-700" />
                     <span>Proponowane przyporządkowanie:</span>
-                    <span className="bg-slate-900 text-white px-2 py-0.5 rounded text-[11px]">
-                      {proposal.proposedCaseId} ({suggestedCase?.folderName || proposal.proposedCaseId})
-                    </span>
+                    {candidateCaseIds.length > 1 ? (
+                      <select
+                        aria-label="Wybierz sprawę dla propozycji"
+                        value={selectedCandidateCaseId}
+                        onChange={(event) => setCandidateCaseByDoc((current) => ({ ...current, [doc.id]: event.target.value }))}
+                        className="bg-white text-slate-900 border border-slate-300 px-2 py-0.5 rounded text-[11px]"
+                      >
+                        <option value="">Wybierz sprawę</option>
+                        {candidateCaseIds.map((candidateId) => {
+                          const candidateCase = cases.find((c) => c.id === candidateId);
+                          return <option key={candidateId} value={candidateId}>{candidateCase?.id || candidateId} — {candidateCase?.title || 'Sprawa'}</option>;
+                        })}
+                      </select>
+                    ) : (
+                      <span className="bg-slate-900 text-white px-2 py-0.5 rounded text-[11px]">
+                        {selectedCandidateCaseId ? `${selectedCandidateCaseId} (${suggestedCase?.folderName || selectedCandidateCaseId})` : 'Wymaga wyboru sprawy'}
+                      </span>
+                    )}
                     <ArrowRight className="w-3 h-3 text-slate-400" />
                     <span className="bg-slate-200 text-slate-800 px-2 py-0.5 rounded text-[11px] font-mono">
                       {proposal.proposedSubfolder}
@@ -189,14 +213,12 @@ export function InboxView({
               {/* Actions row */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex items-center gap-2">
-                  {proposal && proposal.proposedCaseId && (
+                  {proposal && selectedCandidateCaseId && (
                     <button
                       type="button"
                       disabled={isProcessing}
                       onClick={() => {
-                        if (proposal.proposedCaseId) {
-                          handleApprove(doc.id, proposal.proposedCaseId, proposal.proposedSubfolder);
-                        }
+                        handleApprove(doc.id, selectedCandidateCaseId, proposal.proposedSubfolder);
                       }}
                       className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm disabled:opacity-50"
                     >
@@ -209,7 +231,7 @@ export function InboxView({
                     type="button"
                     onClick={() => {
                       setSelectedDocId(isSelected ? null : doc.id);
-                      setCustomCaseId(proposal?.proposedCaseId || cases[0]?.id || '');
+                      setCustomCaseId(selectedCandidateCaseId || cases[0]?.id || '');
                       setCustomSubfolder(proposal?.proposedSubfolder || '01_Otrzymane');
                     }}
                     className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl transition-colors"

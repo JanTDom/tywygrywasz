@@ -16,6 +16,7 @@ import {
   LegalAnalysis,
   MissingInformationItem,
   ProceduralDeadline,
+  getCaseInstitutions,
 } from './types';
 
 export interface BuildCaseAnalysisInput {
@@ -28,6 +29,8 @@ export interface BuildCaseAnalysisInput {
 
 export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalAnalysis {
   const { caseRecord, documents, extractedFields, events, deadlines } = input;
+  const institutions = getCaseInstitutions(caseRecord);
+  const institutionNames = institutions.map((institution) => institution.name).join(', ');
 
   // 1. Strony sporu
   const parties: CaseParty[] = [
@@ -37,12 +40,19 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
       role: 'citizen',
       stance: caseRecord.goalDescription,
     },
-    {
-      id: 'party-opponent',
-      name: caseRecord.authorityOrOpponentName,
-      role: caseRecord.opponentType === 'public_authority' ? 'authority' : 'opponent',
-      stance: `Organ lub strona przeciwna w procedurze: ${caseRecord.procedureType}.`,
-    },
+    ...institutions.map((institution) => ({
+      id: `party-${institution.id}`,
+      institutionId: institution.id,
+      name: institution.name,
+      role: institution.roles.includes('witness')
+        ? 'witness' as const
+        : institution.roles.includes('expert')
+        ? 'expert' as const
+        : institution.kind === 'public_authority' || institution.kind === 'office' || institution.kind === 'court' || institution.roles.includes('issuing_authority') || institution.roles.includes('appeal_authority') || institution.roles.includes('intermediary')
+        ? 'authority' as const
+        : 'opponent' as const,
+      stance: `Rola w sprawie: ${institution.roles.join(', ')}. Procedura: ${caseRecord.procedureType}.`,
+    })),
   ];
 
   // 2. Żądania
@@ -194,7 +204,7 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
     missingFacts: missingInformation.map((m) => m.question),
     claims: [
       {
-        claim: `Użytkownik dochodzi roszczenia lub ochrony prawnej przeciwko: ${caseRecord.authorityOrOpponentName}.`,
+        claim: `Użytkownik dochodzi roszczenia lub ochrony prawnej w sprawie obejmującej: ${institutionNames}.`,
         sourceId: 'GEN-SOURCE',
         interpretationNote: 'Podstawa faktyczna i dowodowa zebrana w katalogu sprawy.',
       },

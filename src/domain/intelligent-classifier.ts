@@ -10,7 +10,7 @@
  * - Asks one simple question when ambiguous.
  */
 
-import { Case, CaseSubfolder, DocumentRecord, DocumentRelation, InboxProposal, RelationType } from './types';
+import { Case, CaseSubfolder, DocumentRecord, DocumentRelation, InboxProposal, RelationType, getCaseInstitutions } from './types';
 
 export interface ClassificationContext {
   cases: Case[];
@@ -33,6 +33,7 @@ export class IntelligentClassifier {
     const discoveredRelations: DocumentRelation[] = [];
 
     let matchedCase: Case | null = null;
+    const candidateMatches: Array<{ caseRecord: Case; institutionIds: string[]; score: number; rationale: string }> = [];
     let confidence = 0.4;
     let rationale = 'Dokument wymaga ręcznego przyporządkowania do sprawy.';
     let proposedSubfolder: CaseSubfolder = '01_Otrzymane';
@@ -69,8 +70,16 @@ export class IntelligentClassifier {
 
     // 3. Wyszukiwanie powiązań z konkretną sprawą na podstawie sygnatury lub stron
     for (const c of context.cases) {
-      const authorityOrOpponent = c.authorityOrOpponentName.toLowerCase();
-      const hasPartyMatch = authorityOrOpponent.length > 3 && textLower.includes(authorityOrOpponent);
+      const institutions = getCaseInstitutions(c);
+      const matchedInstitutions = institutions.filter((institution) => {
+        const name = institution.name.trim().toLowerCase();
+        return name.length > 3 && textLower.includes(name);
+      });
+      const hasPartyMatch = matchedInstitutions.length > 0;
+      let caseScore = hasPartyMatch ? 0.75 : 0;
+      let caseRationale = hasPartyMatch
+        ? `Dokument wymienia instytucję ${matchedInstitutions.map((institution) => `„${institution.name}”`).join(', ')} w sprawie „${c.title}”.`
+        : '';
 
       // Wyszukanie wcześniejszych dokumentów tej sprawy
       const caseDocs = context.existingDocuments.filter((d) => d.caseIds.includes(c.id));
@@ -87,9 +96,8 @@ export class IntelligentClassifier {
             isConfirmedByUser: false,
             createdAt: new Date().toISOString(),
           });
-          matchedCase = c;
-          confidence = 0.95;
-          rationale = `Ten dokument należy do sprawy „${c.title}”: odwołuje się do wcześniejszego pisma ${existingDoc.originalFileName}.`;
+          caseScore = Math.max(caseScore, 0.95);
+          caseRationale = `Ten dokument należy do sprawy „${c.title}”: odwołuje się do wcześniejszego pisma ${existingDoc.originalFileName}.`;
           break;
         }
 
@@ -107,17 +115,35 @@ export class IntelligentClassifier {
         }
       }
 
-      if (!matchedCase && hasPartyMatch) {
-        matchedCase = c;
-        confidence = 0.75;
-        rationale = `Dokument wymienia stronę lub instytucję „${c.authorityOrOpponentName}”, która występuje w sprawie „${c.title}”.`;
+      if (caseScore > 0) {
+        candidateMatches.push({
+          caseRecord: c,
+          institutionIds: matchedInstitutions.map((institution) => institution.id),
+          score: caseScore,
+          rationale: caseRationale,
+        });
       }
+    }
+
+    candidateMatches.sort((a, b) => b.score - a.score);
+    const strongest = candidateMatches[0];
+    const similarlyStrong = strongest
+      ? candidateMatches.filter((candidate) => candidate.score >= strongest.score - 0.05)
+      : [];
+    if (strongest && similarlyStrong.length === 1) {
+      matchedCase = strongest.caseRecord;
+      confidence = Math.max(confidence, strongest.score);
+      rationale = strongest.rationale;
+    } else if (similarlyStrong.length > 1) {
+      confidence = Math.max(confidence, strongest.score);
+      rationale = `Dokument pasuje do kilku spraw: ${similarlyStrong.map((candidate) => `„${candidate.caseRecord.title}”`).join(', ')}. Wybierz właściwą sprawę.`;
+      clarificationQuestion = 'Dokument pasuje do kilku spraw. Do której sprawy go przypisać?';
     }
 
     // 4. Jeśli pewność jest niska, sformułuj proste pytanie
     if (!matchedCase || confidence < 0.7) {
       clarificationQuestion = context.cases.length > 0
-        ? `Czy ten dokument dotyczy sprawy „${context.cases[0].title}”, czy nowej sprawy?`
+        ? clarificationQuestion || `Czy ten dokument dotyczy sprawy „${context.cases[0].title}”, czy nowej sprawy?`
         : 'Do jakiej sprawy chcesz dołączyć ten dokument?';
     }
 
@@ -127,6 +153,8 @@ export class IntelligentClassifier {
       documentTitle: document.originalFileName,
       originalFileName: document.originalFileName,
       proposedCaseId: matchedCase?.id,
+      proposedCaseIds: similarlyStrong.length > 1 ? similarlyStrong.map((candidate) => candidate.caseRecord.id) : matchedCase ? [matchedCase.id] : undefined,
+      matchedInstitutionIds: strongest?.institutionIds.length ? strongest.institutionIds : undefined,
       proposedSubfolder,
       confidence,
       rationale,

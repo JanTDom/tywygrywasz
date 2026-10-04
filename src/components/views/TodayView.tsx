@@ -18,7 +18,15 @@ import {
   ShieldCheck,
   Sparkles,
   Upload,
+  Download,
 } from 'lucide-react';
+import {
+  buildActionSchedule,
+  exportReminderCalendar,
+  filterActionSchedule,
+  scheduleCategoryLabel,
+  ActionScheduleFilter,
+} from '../../domain/action-schedule';
 import { Case, ProceduralDeadline, getCaseInstitutions } from '../../domain/types';
 import { ViewType } from '../Navigation';
 
@@ -38,15 +46,31 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
   const [selectedCaseForDate, setSelectedCaseForDate] = useState('');
   const [dateInput, setDateInput] = useState('');
   const [showDemo, setShowDemo] = useState(false);
+  const [scheduleFilter, setScheduleFilter] = useState<ActionScheduleFilter>('all');
+  const [scheduleCase, setScheduleCase] = useState('all');
   const today = useMemo(() => formatDate(new Date()), []);
-  const activeDeadlines = deadlines.filter((d) => d.status === 'active' || d.status === 'unknown');
-  const unknownDateDeadlines = deadlines.filter((d) => d.status === 'unknown' || d.startDate === 'unknown' || d.calculatedEndDate === 'unknown');
-  const primaryDeadline = unknownDateDeadlines[0] || activeDeadlines[0];
-  const primaryCase = primaryDeadline ? cases.find((c) => c.id === primaryDeadline.caseId) : cases[0];
+  const schedule = useMemo(() => buildActionSchedule(cases, deadlines), [cases, deadlines]);
+  const visibleSchedule = useMemo(() => filterActionSchedule(schedule, scheduleFilter, scheduleCase), [schedule, scheduleFilter, scheduleCase]);
+  const primaryAction = visibleSchedule[0] || schedule[0];
+  const primaryDeadline = primaryAction?.deadline;
+  const primaryCase = primaryAction?.caseRecord || cases[0];
+  const unknownDateDeadlines = schedule.filter((item) => item.needsDeliveryDate && item.deadline).map((item) => item.deadline as ProceduralDeadline);
+  const activeDeadlines = schedule.filter((item) => item.deadline && item.category !== 'unknown').map((item) => item.deadline as ProceduralDeadline);
 
   const confirmDate = () => {
     if (!dateInput || !primaryDeadline) return;
     onConfirmDeliveryDate(selectedCaseForDate || primaryDeadline.caseId, dateInput);
+  };
+
+  const downloadCalendar = () => {
+    const { content, count } = exportReminderCalendar(schedule);
+    if (!count) return;
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/calendar;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'tywygrywasz-przypomnienia.ics';
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -64,10 +88,10 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
         <div className="dashboard-next-icon" aria-hidden="true"><Sparkles size={25} /></div>
         <div className="dashboard-next-copy">
           <div className="eyebrow eyebrow-teal">NASTĘPNY KROK</div>
-          <h2 id="next-step-title">{primaryDeadline ? 'Potwierdź datę doręczenia' : cases.length ? 'Dodaj dokument do swojej sprawy' : 'Załóż swoją pierwszą sprawę'}</h2>
+          <h2 id="next-step-title">{primaryAction ? primaryAction.title : cases.length ? 'Dodaj dokument do swojej sprawy' : 'Załóż swoją pierwszą sprawę'}</h2>
           <p>
-            {primaryDeadline
-              ? 'Bez potwierdzonej daty nie wyliczamy terminu domysłem. Sprawdź zwrotkę lub potwierdzenie ePUAP.'
+            {primaryAction
+              ? primaryAction.guidance
               : cases.length
                 ? 'Zacznij od dokumentu z dysku. Pokażemy Ci, co odczytaliśmy i gdzie go przypisać.'
                 : 'Opisz własnymi słowami, co chcesz osiągnąć. Nazwa procedury nie jest potrzebna.'}
@@ -75,9 +99,13 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
           {primaryCase && <div className="dashboard-next-case"><span>{primaryCase.title}</span><span aria-hidden="true">·</span><span>{getCaseInstitutions(primaryCase).map((institution) => institution.name).join(' · ')}</span></div>}
         </div>
         <div className="dashboard-next-action">
-          {primaryDeadline ? (
+          {primaryAction?.needsDeliveryDate ? (
             <button type="button" className="button-primary" onClick={() => document.getElementById('delivery-date')?.focus()}>
               Potwierdź datę <ArrowRight size={17} />
+            </button>
+          ) : primaryAction ? (
+            <button type="button" className="button-primary" onClick={() => onNavigate(primaryAction.destination, primaryCase?.id)}>
+              {primaryAction.buttonLabel} <ArrowRight size={17} />
             </button>
           ) : cases.length ? (
             <button type="button" className="button-primary" onClick={() => onNavigate('disk')}>
@@ -88,7 +116,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
               Załóż sprawę <ArrowRight size={17} />
             </button>
           )}
-          <button type="button" className="button-link" onClick={() => onNavigate(primaryDeadline ? 'timeline' : 'cases', primaryCase?.id)}>Zobacz szczegóły <ArrowUpRight size={15} /></button>
+          <button type="button" className="button-link" onClick={() => onNavigate(primaryAction ? primaryAction.destination : 'cases', primaryCase?.id)}>Zobacz szczegóły <ArrowUpRight size={15} /></button>
         </div>
       </section>
 
@@ -99,7 +127,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
             <h2 id="delivery-title">Nie mamy potwierdzonej daty odbioru</h2>
             <p>Sprawdź żółtą zwrotkę, kopertę ze stemplem lub historię ePUAP. Data utworzenia pliku nie jest datą doręczenia.</p>
             <div className="delivery-controls">
-              <select aria-label="Wybierz sprawę" value={selectedCaseForDate || primaryDeadline?.caseId || ''} onChange={(e) => setSelectedCaseForDate(e.target.value)}>
+              <select aria-label="Wybierz sprawę" value={selectedCaseForDate || unknownDateDeadlines[0]?.caseId || ''} onChange={(e) => setSelectedCaseForDate(e.target.value)}>
                 {unknownDateDeadlines.map((d) => <option key={d.id} value={d.caseId}>{d.actionRequired}</option>)}
               </select>
               <input id="delivery-date" aria-label="Potwierdzona data doręczenia" type="date" value={dateInput} onChange={(e) => setDateInput(e.target.value)} />
@@ -126,6 +154,26 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
           <span className="metric-copy"><span className="metric-label">Sejf lokalny</span><strong className="metric-status"><span className="status-check"><CheckCircle2 size={15} /></span> Aktywny</strong><span className="metric-sub">Dane zostają na tym urządzeniu</span></span>
           <ChevronRight className="metric-arrow" size={18} />
         </button>
+      </section>
+
+      <section className="surface panel-card" aria-labelledby="action-queue-title">
+        <div className="panel-head">
+          <div><div className="panel-kicker"><CalendarClock size={16} /> KOLEJKA DZIAŁAŃ</div><h2 id="action-queue-title">Wszystkie sprawy, jeden spokojny plan</h2></div>
+          <button type="button" className="panel-action" onClick={downloadCalendar} disabled={!schedule.some((item) => item.deadline && item.dueDate)}><Download size={15} /> Pobierz do kalendarza</button>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-4">
+          {([['all', 'Wszystkie'], ['expired', 'Po terminie'], ['today', 'Dzisiaj'], ['next7', 'Najbliższe 7 dni'], ['unknown', 'Do wyjaśnienia']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setScheduleFilter(id)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${scheduleFilter === id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{label}</button>)}
+          <select aria-label="Filtruj po sprawie" value={scheduleCase} onChange={(event) => setScheduleCase(event.target.value)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600">
+            <option value="all">Wszystkie sprawy</option>
+            {cases.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.title}</option>)}
+          </select>
+        </div>
+        <div className="deadline-list">
+          {visibleSchedule.length ? visibleSchedule.slice(0, 8).map((action) => <button key={action.id} type="button" className="deadline-row" onClick={() => onNavigate(action.destination, action.caseRecord.id)}>
+            <span className={`deadline-date ${action.category === 'unknown' || action.category === 'expired' ? 'deadline-date-amber' : ''}`}>{action.dueDate ? action.dueDate.slice(8, 10) : '—'}<small>{action.dueDate ? action.dueDate.slice(5, 7) : scheduleCategoryLabel(action)}</small></span>
+            <span className="deadline-copy"><strong>{action.title}</strong><span>{action.caseRecord.title} · {scheduleCategoryLabel(action)} · {action.guidance}</span></span><ChevronRight size={16} />
+          </button>) : <div className="empty-panel"><CheckCircle2 size={20} /><span>Brak działań dla tego filtra.</span></div>}
+        </div>
       </section>
 
       <div className="dashboard-grid">

@@ -48,7 +48,9 @@ describe('E2EESyncEngine (Zero-Knowledge AES-GCM Client Sync)', () => {
     expect(payload1.encryptedContainer.ciphertextHex).toBeDefined();
     expect(payload1.encryptedContainer.ivHex.length).toBe(24); // 12 bajtów IV w hex
     expect(payload1.encryptedContainer.saltHex.length).toBe(32); // 16 bajtów soli w hex
-    expect(payload1.manifestSha256.length).toBe(64);
+    expect(payload1.manifestSha256).toBeUndefined();
+    expect(payload1.encryptedContainer.manifestSha256).toBeUndefined();
+    expect(payload1.revision).not.toBe(payload2.revision);
 
     // Dwa kolejne szyfrowania tego samego manifestu dają różne szyfrogramy (unikalny nonce IV)
     expect(payload1.encryptedContainer.ciphertextHex).not.toBe(payload2.encryptedContainer.ciphertextHex);
@@ -102,5 +104,21 @@ describe('E2EESyncEngine (Zero-Knowledge AES-GCM Client Sync)', () => {
     expect(conflict?.conflictResolution).toBe('preserve_both');
     expect(conflict?.serverVersion).toBe(2);
     expect(conflict?.localVersion).toBe(1);
+  });
+
+  it('tworzy wersję następną względem jawnie odczytanej wersji bazowej', async () => {
+    const payload = await syncEngine.prepareSyncPayload(mockManifest, testPassphrase, { expectedVersion: 4 });
+
+    expect(payload.version).toBe(5);
+    expect(payload.expectedVersion).toBe(4);
+  });
+
+  it('odrzuca uszkodzoną kopertę przed próbą odszyfrowania', async () => {
+    const payload = await syncEngine.prepareSyncPayload(mockManifest, testPassphrase);
+
+    await expect(syncEngine.decryptSyncPayload({
+      ...payload,
+      encryptedContainer: { ...payload.encryptedContainer, ciphertextHex: 'not-hex' },
+    }, testPassphrase)).rejects.toThrow('Nieprawidłowy szyfrogram');
   });
 });

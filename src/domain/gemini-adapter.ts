@@ -94,10 +94,12 @@ export class GeminiAdapter {
       };
     }
 
-    // W sytuacji testowej lub braku klucza zwracamy jawny wynik
+    // Ten adapter nie wykonuje udawanego „sukcesu”. Realne wywołanie Gemini
+    // wymaga osobnego, serwerowego endpointu z kontrolą kosztu, retencji,
+    // logowania zgody i walidacją odpowiedzi; do tego czasu blokujemy wysyłkę.
     return {
-      success: true,
-      resultText: 'Odpowiedź wygenerowana przez zweryfikowany adapter Gemini.',
+      success: false,
+      error: 'Wysyłka do Gemini nie jest jeszcze aktywna. Ten tryb chroni dane przed pozornym lub nieaudytowanym wywołaniem chmury.',
       payloadHash,
     };
   }

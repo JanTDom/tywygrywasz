@@ -13,11 +13,14 @@ import {
   Clock,
   CheckCircle2,
   Scale,
+  Pencil,
+  X,
 } from 'lucide-react';
 import {
   Case,
   CaseInstitutionKind,
   CaseInstitutionRole,
+  CaseInstitution,
   ProcedureType,
   OpponentType,
 } from '../../domain/types';
@@ -30,6 +33,7 @@ interface CasesViewProps {
   onCreateCase: (newCase: Omit<Case, 'id' | 'folderName' | 'createdAt' | 'updatedAt' | 'status' | 'nextAction' | 'missingFacts'>) => void;
   onNavigate: (view: ViewType, caseId?: string) => void;
   documentCountByCase: Record<string, number>;
+  onUpdateCase?: (caseId: string, patch: Partial<Case>) => void;
 }
 
 export function CasesView({
@@ -39,9 +43,12 @@ export function CasesView({
   onCreateCase,
   onNavigate,
   documentCountByCase,
+  onUpdateCase,
 }: CasesViewProps) {
   const [filterType, setFilterType] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCase, setEditingCase] = useState<Case | null>(null);
+  const [editingInstitutions, setEditingInstitutions] = useState<CaseInstitution[]>([]);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -116,6 +123,44 @@ export function CasesView({
     setInstitutionDrafts((current) =>
       current.length <= 1 ? current : current.filter((_, institutionIndex) => institutionIndex !== index)
     );
+  };
+
+  const openInstitutionEditor = (caseRecord: Case) => {
+    const institutions = caseRecord.institutions?.length ? caseRecord.institutions : [{
+      id: `${caseRecord.id}-legacy-institution`,
+      name: caseRecord.authorityOrOpponentName,
+      kind: caseRecord.opponentType === 'public_authority' ? 'public_authority' : caseRecord.opponentType === 'company' ? 'company' : caseRecord.opponentType === 'individual' ? 'individual' : 'organization',
+      roles: ['opponent' as CaseInstitutionRole],
+      isPrimary: true,
+      jurisdictionReason: caseRecord.authorityJurisdictionReason,
+      active: true,
+    } satisfies CaseInstitution];
+    setEditingCase(caseRecord);
+    setEditingInstitutions(institutions.map((item) => ({ ...item, roles: item.roles.length ? item.roles : ['other'] })));
+  };
+
+  const updateEditingInstitution = (index: number, patch: Partial<CaseInstitution>) => {
+    setEditingInstitutions((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
+  };
+
+  const saveInstitutionEditor = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingCase || !onUpdateCase) return;
+    const cleaned = editingInstitutions.map((item, index) => ({
+      ...item,
+      name: item.name.trim(),
+      roles: item.roles.length ? item.roles : ['other' as CaseInstitutionRole],
+      isPrimary: index === 0,
+      active: item.active !== false,
+    })).filter((item) => item.name.length > 0);
+    if (!cleaned.length) return;
+    onUpdateCase(editingCase.id, {
+      institutions: cleaned,
+      authorityOrOpponentName: cleaned[0].name,
+      authorityJurisdictionReason: cleaned[0].jurisdictionReason || editingCase.authorityJurisdictionReason,
+      updatedAt: new Date().toISOString(),
+    });
+    setEditingCase(null);
   };
 
   const getOpponentIcon = (type: OpponentType) => {
@@ -319,6 +364,7 @@ export function CasesView({
                     <span>Otwórz</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
+                  {onUpdateCase && <button type="button" onClick={() => openInstitutionEditor(c)} className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900" aria-label={`Edytuj instytucje sprawy ${c.id}`}><Pencil className="w-3.5 h-3.5" /> Edytuj instytucje</button>}
                 </div>
               </div>
             </div>
@@ -528,6 +574,22 @@ export function CasesView({
                   Utwórz sprawę na dysku
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingCase && onUpdateCase && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-xl w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-bold text-slate-900">Instytucje w sprawie</h2><p className="text-xs text-slate-600 mt-1">{editingCase.title}. Możesz poprawić adresata, role oraz kanał kontaktu.</p></div><button type="button" onClick={() => setEditingCase(null)} aria-label="Zamknij edycję"><X className="w-5 h-5 text-slate-500" /></button></div>
+            <form onSubmit={saveInstitutionEditor} className="mt-4 space-y-3">
+              {editingInstitutions.map((institution, index) => <div key={institution.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                <div className="flex gap-2"><input required value={institution.name} onChange={(event) => updateEditingInstitution(index, { name: event.target.value })} aria-label={`Nazwa instytucji ${index + 1}`} className="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900" /><select value={institution.kind} onChange={(event) => updateEditingInstitution(index, { kind: event.target.value as CaseInstitution['kind'] })} aria-label={`Typ instytucji ${index + 1}`} className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-2 text-slate-900"><option value="public_authority">Organ publiczny</option><option value="office">Urząd</option><option value="court">Sąd</option><option value="company">Firma</option><option value="organization">Organizacja</option><option value="individual">Osoba</option><option value="other">Inny</option></select></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select value={institution.roles[0] || 'other'} onChange={(event) => updateEditingInstitution(index, { roles: [event.target.value as CaseInstitutionRole] })} aria-label={`Rola instytucji ${index + 1}`} className="text-xs bg-white border border-slate-300 rounded-lg px-2 py-2 text-slate-900"><option value="opponent">Druga strona</option><option value="issuing_authority">Organ prowadzący</option><option value="appeal_authority">Organ odwoławczy</option><option value="intermediary">Organ pośredniczący</option><option value="recipient">Adresat pisma</option><option value="consulted">Konsultowana</option><option value="witness">Świadek</option><option value="expert">Ekspert</option><option value="other">Inna rola</option></select><input value={institution.addressOrChannel || ''} onChange={(event) => updateEditingInstitution(index, { addressOrChannel: event.target.value })} aria-label={`Adres lub kanał kontaktu ${index + 1}`} placeholder="Adres lub kanał kontaktu" className="text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900" /></div>
+                <input value={institution.jurisdictionReason || ''} onChange={(event) => updateEditingInstitution(index, { jurisdictionReason: event.target.value })} aria-label={`Uzasadnienie właściwości ${index + 1}`} placeholder="Dlaczego ta instytucja jest w sprawie? (opcjonalnie)" className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900" />
+              </div>)}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100"><button type="button" onClick={() => setEditingCase(null)} className="text-xs font-semibold text-slate-600 px-3 py-2">Anuluj</button><button type="submit" className="text-xs font-semibold bg-slate-900 text-white rounded-lg px-4 py-2">Zapisz instytucje</button></div>
             </form>
           </div>
         </div>

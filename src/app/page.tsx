@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useMemo, useTransition } from 'react';
 import {
   Shield,
   RefreshCw,
@@ -12,6 +12,7 @@ import {
   Search,
   UserRound,
   X,
+  ArrowRight,
 } from 'lucide-react';
 import { Navigation, ViewType } from '../components/Navigation';
 import { TodayView } from '../components/views/TodayView';
@@ -37,15 +38,22 @@ import {
   LetterDraft,
   ProceduralDeadline,
   DiskFileInfo,
+  parseVaultManifest,
 } from '../domain/types';
 import { SYNTHETIC_DATASET } from '../domain/synthetic-data';
 import { calculateKpaDeadline } from '../domain/deadlines';
 import { OFFICIAL_LEGAL_SOURCES } from '../domain/legal-knowledge';
 import { buildCompleteCaseAnalysis } from '../domain/case-analysis';
 import { IntelligentClassifier } from '../domain/intelligent-classifier';
-import { EncryptedContainer, decryptVault } from '../domain/crypto';
+import { EncryptedContainer, decryptVault, wrapVaultKey, type VaultKeyEnvelope } from '../domain/crypto';
 import { LocalOcrEngine } from '../domain/ocr-engine';
 import { E2EESyncEngine } from '../domain/sync-engine';
+import { EncryptedBrowserDocumentStorage, requestPersistentBrowserStorage } from '../domain/browser-storage';
+import { computeSha256 } from '../domain/crypto';
+import { createVaultAccess, encodeRecoveryKey, unlockVaultAccess } from '../domain/vault-access';
+
+const VAULT_ENVELOPE_PREFIX = 'tywygrywasz-key-envelope-';
+const LEGACY_VAULT_KEY_PREFIX = 'tywygrywasz-vault-key-';
 
 export default function TyWygrywaszApp() {
   const [vault, setVault] = useState<LocalVault>(() => {
@@ -77,6 +85,12 @@ export default function TyWygrywaszApp() {
   const [profilePassword, setProfilePassword] = useState('');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [vaultPassphrase, setVaultPassphrase] = useState('');
+  const [vaultRecoveryKey, setVaultRecoveryKey] = useState('');
+  const [vaultKeyMaterial, setVaultKeyMaterial] = useState<Uint8Array | null>(null);
+  const [vaultHydrated, setVaultHydrated] = useState(true);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [documentStorage, setDocumentStorage] = useState(() => new EncryptedBrowserDocumentStorage({ vaultId: 'sejf-lokalny-01' }));
 
   useEffect(() => {
     const stored = window.localStorage.getItem('obywatel-profile');
@@ -85,8 +99,15 @@ export default function TyWygrywaszApp() {
         const parsed = JSON.parse(stored) as { id: string; name: string; email: string };
         setProfile(parsed);
         setProfileDraft({ name: parsed.name, email: parsed.email });
+        // The envelope is intentionally not unwrapped during app startup.
+        // Opening the account dialog and entering the account password is the
+        // explicit unlock step; no raw vault key is persisted.
+        setVaultHydrated(false);
+        setGlobalNotice('Sejf jest zablokowany. Otwórz konto i podaj hasło, aby odblokować dokumenty na tym urządzeniu.');
+        setIsAccountOpen(true);
       } catch {
         window.localStorage.removeItem('obywatel-profile');
+        setVaultHydrated(true);
       }
     }
     void fetch('/api/auth/me', { credentials: 'include' })
@@ -102,13 +123,36 @@ export default function TyWygrywaszApp() {
   }, []);
 
   useEffect(() => {
-    if (!profile || !vaultPassphrase || typeof window === 'undefined') return;
+    if (typeof window !== 'undefined' && !profile) {
+      const localKey = crypto.getRandomValues(new Uint8Array(32));
+      setVaultKeyMaterial(localKey);
+      setVaultRecoveryKey(encodeRecoveryKey(localKey));
+      setVaultPassphrase(encodeRecoveryKey(localKey));
+      setDocumentStorage(new EncryptedBrowserDocumentStorage({ vaultId: 'sejf-lokalny-01', vaultKey: localKey }));
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    void requestPersistentBrowserStorage();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setIsSearchOpen(true);
+      }
+      if (event.key === 'Escape') setIsSearchOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!profile || !vaultPassphrase || !vaultHydrated || typeof window === 'undefined') return;
     let cancelled = false;
     void vault.exportEncryptedBackup(vaultPassphrase).then((container) => {
       if (!cancelled) window.localStorage.setItem(`tywygrywasz-vault-${profile.id}`, JSON.stringify(container));
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [vault, profile, vaultPassphrase]);
+  }, [vault, profile, vaultPassphrase, vaultHydrated]);
 
   const handleSaveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -144,19 +188,53 @@ export default function TyWygrywaszApp() {
       }
       window.localStorage.setItem('obywatel-profile', JSON.stringify(nextProfile));
       setProfile(nextProfile);
-      setVaultPassphrase(profilePassword);
+      const envelopeStorageName = `${VAULT_ENVELOPE_PREFIX}${nextProfile.id}`;
+      const legacyKeyStorageName = `${LEGACY_VAULT_KEY_PREFIX}${nextProfile.id}`;
+      const storedEnvelope = window.localStorage.getItem(envelopeStorageName);
+      const legacyRecoveryKey = window.localStorage.getItem(legacyKeyStorageName);
+      let vaultKey: Uint8Array;
+      let envelope: VaultKeyEnvelope;
+      if (storedEnvelope) {
+        envelope = JSON.parse(storedEnvelope) as VaultKeyEnvelope;
+        vaultKey = await unlockVaultAccess(envelope, profilePassword);
+      } else if (legacyRecoveryKey) {
+        // One-time migration from the old local-only key format.
+        vaultKey = await unlockVaultAccess({} as VaultKeyEnvelope, legacyRecoveryKey);
+        // Re-wrap the migrated key with the account password.
+        envelope = await wrapVaultKey(vaultKey, profilePassword);
+        window.localStorage.removeItem(legacyKeyStorageName);
+      } else {
+        const access = await createVaultAccess(profilePassword);
+        vaultKey = access.key;
+        envelope = access.envelope;
+      }
+      window.localStorage.setItem(envelopeStorageName, JSON.stringify(envelope));
+      const storedRecoveryKey = encodeRecoveryKey(vaultKey);
+      setVaultKeyMaterial(vaultKey);
+      setVaultRecoveryKey(storedRecoveryKey);
+      setVaultPassphrase(storedRecoveryKey);
+      setVaultHydrated(false);
+      setDocumentStorage(new EncryptedBrowserDocumentStorage({ vaultId: `sejf-${nextProfile.id}`, vaultKey }));
       setVault(new LocalVault(`sejf-${nextProfile.id}`));
       const storedVault = window.localStorage.getItem(`tywygrywasz-vault-${nextProfile.id}`);
       if (storedVault) {
         try {
-          const restoredManifest = JSON.parse(await decryptVault(JSON.parse(storedVault) as EncryptedContainer, profilePassword));
+          let restoredJson: string;
+          try {
+            restoredJson = await decryptVault(JSON.parse(storedVault) as EncryptedContainer, storedRecoveryKey);
+          } catch {
+            // Backward compatibility for backups created before key separation.
+            restoredJson = await decryptVault(JSON.parse(storedVault) as EncryptedContainer, profilePassword);
+          }
+          const restoredManifest = parseVaultManifest(JSON.parse(restoredJson));
           setVault(LocalVault.fromManifest(restoredManifest));
-          setGlobalNotice('Zalogowano i odtworzono lokalny sejf tego konta.');
+          setGlobalNotice('Zalogowano i odtworzono lokalny sejf. Klucz sejfu jest oddzielony od hasła konta.');
         } catch {
           setGlobalNotice('Zalogowano. Lokalny sejf wymaga importu kopii zapasowej.');
         }
       }
       setProfilePassword('');
+      setVaultHydrated(true);
       setIsAccountOpen(false);
       if (!storedVault) setGlobalNotice(authMode === 'login' ? 'Zalogowano. Utwórz lub odtwórz swój lokalny sejf.' : 'Konto utworzone. Dokumenty zostają w zaszyfrowanym sejfie tego urządzenia.');
     } catch (error) {
@@ -171,8 +249,14 @@ export default function TyWygrywaszApp() {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', headers: { 'x-csrf-token': csrfData.csrfToken } });
     } finally {
       setProfile(null);
+      vaultKeyMaterial?.fill(0);
+      setVaultKeyMaterial(null);
       setVaultPassphrase('');
       setVault(new LocalVault('sejf-lokalny-01'));
+      setVaultRecoveryKey('');
+      setVaultHydrated(true);
+      documentStorage.clearVaultKey();
+      setDocumentStorage(new EncryptedBrowserDocumentStorage({ vaultId: 'sejf-lokalny-01' }));
       window.localStorage.removeItem('obywatel-profile');
       setIsAccountOpen(false);
       setGlobalNotice('Wylogowano. Dane konta pozostały w zaszyfrowanym sejfie urządzenia.');
@@ -231,6 +315,30 @@ export default function TyWygrywaszApp() {
       null
     : null;
   const currentActionPlan = currentAnalysis?.actionPlan || [];
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [] as Array<{ type: 'case' | 'document' | 'letter'; id: string; title: string; detail: string; view: ViewType; caseId?: string }>;
+    const results: Array<{ type: 'case' | 'document' | 'letter'; id: string; title: string; detail: string; view: ViewType; caseId?: string }> = [];
+    cases.forEach((item) => {
+      const institutionText = item.institutions?.map((institution) => institution.name).join(' ') || item.authorityOrOpponentName || '';
+      if (`${item.id} ${item.title} ${item.goalDescription} ${institutionText}`.toLowerCase().includes(query)) {
+        results.push({ type: 'case', id: item.id, title: item.title, detail: `${item.id} · ${institutionText || 'bez wskazanej instytucji'}`, view: 'cases', caseId: item.id });
+      }
+    });
+    documents.forEach((item) => {
+      const version = versions.find((candidate) => candidate.id === item.activeVersionId);
+      if (`${item.originalFileName} ${item.diskRelativePath || ''} ${version?.textPayload || ''} ${item.originalSha256}`.toLowerCase().includes(query)) {
+        results.push({ type: 'document', id: item.id, title: item.originalFileName, detail: item.diskRelativePath || 'Dokument lokalny', view: 'disk', caseId: item.caseIds[0] });
+      }
+    });
+    letters.forEach((item) => {
+      if (`${item.title} ${item.recipient.name} ${item.caseSignature}`.toLowerCase().includes(query)) {
+        results.push({ type: 'letter', id: item.id, title: item.title, detail: `Pismo do: ${item.recipient.name}`, view: 'letters', caseId: item.caseId });
+      }
+    });
+    return results.slice(0, 20);
+  }, [cases, documents, letters, searchQuery, versions]);
 
   // 1. Initial scan on mount
   useEffect(() => {
@@ -455,6 +563,7 @@ export default function TyWygrywaszApp() {
         extractedFields: Array.from(vault.extractedFields.values()),
         events: Array.from(vault.events.values()).filter((e) => e.caseId === 'S-0001'),
         deadlines: [deadline1],
+        legalSources: Array.from(vault.legalSources.values()),
       });
       vault.setLegalAnalysis(analysis1);
 
@@ -465,6 +574,7 @@ export default function TyWygrywaszApp() {
         extractedFields: [],
         events: Array.from(vault.events.values()).filter((e) => e.caseId === 'S-0002'),
         deadlines: [],
+        legalSources: Array.from(vault.legalSources.values()),
       });
       vault.setLegalAnalysis(analysis2);
 
@@ -475,6 +585,7 @@ export default function TyWygrywaszApp() {
         extractedFields: [],
         events: Array.from(vault.events.values()).filter((e) => e.caseId === 'S-0003'),
         deadlines: [],
+        legalSources: Array.from(vault.legalSources.values()),
       });
       vault.setLegalAnalysis(analysis3);
 
@@ -610,6 +721,14 @@ export default function TyWygrywaszApp() {
     triggerRefresh();
   };
 
+  const handleUpdateCase = (caseId: string, patch: Partial<Case>) => {
+    const caseRecord = vault.cases.get(caseId);
+    if (!caseRecord) return;
+    Object.assign(caseRecord, patch, { updatedAt: new Date().toISOString() });
+    setGlobalNotice('Zaktualizowano dane instytucji w sprawie.');
+    triggerRefresh();
+  };
+
   // 10. Eksport i Restore zaszyfrowanej kopii
   const handleExportBackup = async (passphrase: string): Promise<EncryptedContainer> => {
     return vault.exportEncryptedBackup(passphrase);
@@ -635,10 +754,11 @@ export default function TyWygrywaszApp() {
     if (!activeVer) return;
 
     const ocrEngine = new LocalOcrEngine();
+    const originalBytes = await documentStorage.getBytes(doc.id);
     const result = await ocrEngine.processImageOrScan({
       fileName: doc.originalFileName,
       mimeType: doc.mimeType,
-      rawPayload: activeVer.textPayload || '',
+      rawPayload: originalBytes || activeVer.textPayload || '',
     });
 
     const existingCount = Array.from(vault.documentVersions.values()).filter((v) => v.documentId === doc.id).length;
@@ -660,28 +780,41 @@ export default function TyWygrywaszApp() {
     for (const file of selectedFiles) {
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       const isText = extension === 'txt' || extension === 'rtf' || file.type.startsWith('text/');
+      const rawBytes = new Uint8Array(await file.arrayBuffer());
+      const originalSha256 = await computeSha256(rawBytes);
       let content: string;
       if (isText) {
         content = await file.text();
       } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        let binary = '';
-        for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-          binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-        }
-        content = `[Lokalny payload binarny: ${file.type || extension}]\n${btoa(binary)}`;
+        // Keep binary originals in IndexedDB. The encrypted manifest carries
+        // only a small locator, so large PDFs/scans never inflate localStorage.
+        content = `[Oryginał zapisany lokalnie w magazynie przeglądarki: ${file.type || extension}]`;
       }
-      await vault.importDocument({
+      const imported = await vault.importDocument({
         type: 'other',
         direction: 'incoming',
         origin: 'disk_file',
         originalFileName: file.name,
         mimeType: file.type || 'application/octet-stream',
         content,
+        originalSha256,
+        fileSize: rawBytes.byteLength,
         diskRelativePath: `Moje_sprawy/Do_uporzadkowania/${file.name}`,
       });
+      try {
+        await documentStorage.putDocument({
+          documentId: imported.document.id,
+          originalFileName: file.name,
+          mimeType: file.type || undefined,
+          bytes: rawBytes,
+        });
+      } catch (error) {
+        vault.documents.delete(imported.document.id);
+        vault.documentVersions.delete(imported.initialVersion.id);
+        throw error;
+      }
     }
-    setGlobalNotice(`Dodano ${selectedFiles.length} ${selectedFiles.length === 1 ? 'dokument' : 'dokumenty'} do zaszyfrowanego lokalnego sejfu.${rejectedCount ? ` Pominięto ${rejectedCount} nieobsługiwanych plików.` : ''}`);
+    setGlobalNotice(`Dodano ${selectedFiles.length} ${selectedFiles.length === 1 ? 'dokument' : 'dokumenty'} do sejfu. Oryginały są w trwałym magazynie przeglądarki, a manifest pozostaje zaszyfrowany.${rejectedCount ? ` Pominięto ${rejectedCount} nieobsługiwanych plików.` : ''}`);
     triggerRefresh();
   };
 
@@ -706,7 +839,19 @@ export default function TyWygrywaszApp() {
   const handleSyncToServer = async (passphrase: string) => {
     const syncEngine = new E2EESyncEngine();
     const manifest = vault.toManifest();
-    const payload = await syncEngine.prepareSyncPayload(manifest, passphrase);
+    const recordId = `sync-${vault.vaultId}`;
+    const existingResponse = await fetch(`/api/sync?recordId=${encodeURIComponent(recordId)}`, { credentials: 'include' });
+    let expectedVersion: number | undefined;
+    if (existingResponse.ok) {
+      const existingData = await existingResponse.json();
+      expectedVersion = Number(existingData.record?.version);
+      if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) throw new Error('Serwer zwrócił nieprawidłową wersję synchronizacji.');
+    } else if (existingResponse.status !== 404) {
+      throw new Error('Nie udało się odczytać wersji synchronizacji.');
+    } else {
+      expectedVersion = 0;
+    }
+    const payload = await syncEngine.prepareSyncPayload(manifest, passphrase, { expectedVersion });
     const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
     const csrfData = await csrfResponse.json();
 
@@ -719,6 +864,9 @@ export default function TyWygrywaszApp() {
 
     if (!res.ok) {
       const errData = await res.json();
+      if (res.status === 409 || errData.code === 'SYNC_CONFLICT') {
+        throw new Error('Sejf został zmieniony na innym urządzeniu. Najpierw pobierz najnowszą wersję i sprawdź różnice.');
+      }
       throw new Error(errData.error || 'Błąd synchronizacji serwera');
     }
     return { recordId: payload.recordId, version: payload.version };
@@ -743,13 +891,14 @@ export default function TyWygrywaszApp() {
       <Navigation
         activeView={activeView}
         onSelectView={(v) => setActiveView(v)}
+        onHome={() => { setActiveView('today'); setActiveCaseId(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
         inboxCount={inboxDocuments.length}
         urgentCount={urgentCount}
       />
 
       <div className="app-main">
         <header className="app-topbar no-print">
-          <button type="button" className="topbar-search" onClick={() => setGlobalNotice('Wyszukiwanie lokalne będzie dostępne po dodaniu dokumentów do sejfu.')} aria-label="Szukaj w sprawach, dokumentach i pismach">
+          <button type="button" className="topbar-search" onClick={() => setIsSearchOpen(true)} aria-label="Szukaj w sprawach, dokumentach i pismach">
             <Search size={17} />
             <span>Szukaj w sprawach, dokumentach i pismach…</span>
             <span className="topbar-shortcut">⌘ K</span>
@@ -800,6 +949,7 @@ export default function TyWygrywaszApp() {
               setActiveView(v);
             }}
             documentCountByCase={documentCountByCase}
+            onUpdateCase={handleUpdateCase}
           />
         )}
 
@@ -926,6 +1076,7 @@ export default function TyWygrywaszApp() {
               <button type="button" className="account-close" onClick={() => setIsAccountOpen(false)} aria-label="Zamknij"><X size={18} /></button>
             </div>
             <p className="account-intro">Profil pomaga odróżnić Twój sejf od innych profili na tym urządzeniu. Dokumenty pozostają lokalnie i nie są wysyłane przy zakładaniu profilu.</p>
+            {profile && vaultRecoveryKey && <div className="account-note"><Shield size={16} /><span>Sejf używa osobnego klucza odzyskiwania. <button type="button" className="button-link" onClick={() => { const blob = new Blob([`TyWygrywasz.pl — klucz lokalnego sejfu\n\n${vaultRecoveryKey}\n\nPrzechowuj ten plik poza publicznymi usługami. Klucz nie jest hasłem konta.\n`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'tywygrywasz-klucz-sejfu.txt'; link.click(); URL.revokeObjectURL(url); }}>Pobierz klucz odzyskiwania</button></span></div>}
             <form onSubmit={handleSaveProfile} className="account-form">
               {(authMode === 'register' || profile) && <label>Jak mamy się do Ciebie zwracać<input required autoFocus value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} placeholder="np. Anna Kowalska" /></label>}
               <label>Adres e-mail<input required type="email" autoComplete="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="np. anna@example.pl" /></label>
@@ -935,6 +1086,30 @@ export default function TyWygrywaszApp() {
               {!profile && <button type="button" className="account-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Nie masz konta? Załóż je' : 'Masz już konto? Zaloguj się'}</button>}
               {profile && <button type="button" className="account-switch" onClick={handleLogout}>Wyloguj się</button>}
             </form>
+          </section>
+        </div>
+      )}
+
+      {isSearchOpen && (
+        <div className="account-overlay no-print" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsSearchOpen(false); }}>
+          <section className="account-dialog search-dialog" role="dialog" aria-modal="true" aria-labelledby="search-title">
+            <div className="account-dialog-head">
+              <div><div className="panel-kicker"><Search size={16} /> LOKALNE WYSZUKIWANIE</div><h2 id="search-title">Znajdź w swoim sejfie</h2></div>
+              <button type="button" className="account-close" onClick={() => setIsSearchOpen(false)} aria-label="Zamknij wyszukiwanie"><X size={18} /></button>
+            </div>
+            <label className="search-dialog-input"><Search size={18} /><input autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Sprawa, instytucja, nazwa pliku, treść OCR…" /></label>
+            <p className="account-intro">Wyszukiwanie działa na tym urządzeniu. Przeszukuje nazwy plików, treść odczytanych wersji, sprawy, instytucje i pisma.</p>
+            <div className="search-results" aria-live="polite">
+              {searchQuery.trim() && searchResults.length === 0 && <div className="empty-panel"><Search size={18} /><span>Nic nie znaleziono. Spróbuj krótszego hasła.</span></div>}
+              {!searchQuery.trim() && <div className="empty-panel"><Search size={18} /><span>Zacznij pisać, aby przeszukać lokalny sejf.</span></div>}
+              {searchResults.map((result) => (
+                <button key={`${result.type}-${result.id}`} type="button" className="search-result-row" onClick={() => { setActiveView(result.view); if (result.caseId) setActiveCaseId(result.caseId); setIsSearchOpen(false); }}>
+                  <span className="search-result-kind">{result.type === 'case' ? 'SPRAWA' : result.type === 'document' ? 'DOKUMENT' : 'PISMO'}</span>
+                  <span className="search-result-copy"><strong>{result.title}</strong><small>{result.detail}</small></span>
+                  <ArrowRight size={16} />
+                </button>
+              ))}
+            </div>
           </section>
         </div>
       )}

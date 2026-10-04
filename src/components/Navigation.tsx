@@ -32,13 +32,14 @@ export type ViewType =
 interface NavigationProps {
   activeView: ViewType;
   onSelectView: (view: ViewType) => void;
+  onHome?: () => void;
   inboxCount: number;
   urgentCount: number;
 }
 
 type NavItem = { id: ViewType; label: string; icon: React.ReactNode; badge?: number };
 
-export function Navigation({ activeView, onSelectView, inboxCount, urgentCount }: NavigationProps) {
+export function Navigation({ activeView, onSelectView, onHome, inboxCount, urgentCount }: NavigationProps) {
   const sections: { label: string; items: NavItem[] }[] = [
     {
       label: 'Start',
@@ -86,13 +87,13 @@ export function Navigation({ activeView, onSelectView, inboxCount, urgentCount }
   return (
     <>
       <aside className="app-rail no-print" aria-label="Główna nawigacja">
-        <div className="rail-brand">
+        <button type="button" className="rail-brand rail-brand-button" onClick={() => onHome?.()} aria-label="Wróć do strony głównej">
           <img className="brand-logo" src="/tywygrywasz-shield.png" alt="TyWygrywasz.pl" />
           <div>
             <div className="brand-name">TyWygrywasz.pl</div>
             <div className="brand-caption">Twój porządek w sprawie</div>
           </div>
-        </div>
+        </button>
 
         <button type="button" className="rail-add" onClick={() => onSelectView('cases')}>
           <Plus size={17} /> <span>Dodaj coś nowego</span>

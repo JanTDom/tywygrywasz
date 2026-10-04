@@ -206,7 +206,7 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
               Szyfrowanie kontenera
             </span>
             <div className="font-bold text-slate-900 mt-0.5">AES-GCM-256</div>
-            <div className="text-[10px] text-slate-500">Klucz: PBKDF2 (100 000 iteracji, SHA-256)</div>
+            <div className="text-[10px] text-slate-500">Losowy klucz sejfu 256-bit, opakowanie PBKDF2 (210 000 iteracji)</div>
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
@@ -241,7 +241,8 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
             Tworzy zaszyfrowany plik JSON zawierający stan spraw, powiązania, OCR oraz metadane dokumentów.
-            Klucz jest wyprowadzany wyłącznie z Twojego hasła.
+            Dane szyfruje losowy klucz sejfu, a Twoje hasło służy wyłącznie do jego bezpiecznego opakowania.
+            Dzięki temu zmianę hasła można wykonać bez ponownego szyfrowania dokumentów.
           </p>
 
           <div>

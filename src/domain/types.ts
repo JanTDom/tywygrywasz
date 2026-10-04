@@ -526,3 +526,96 @@ export interface VaultManifest {
   history: DiskOperationHistoryEntry[];
   exportedAt?: string;
 }
+
+/**
+ * Bounds for data parsed from an untrusted encrypted backup. The encrypted
+ * payload is authenticated, but a valid key must not turn malformed JSON or
+ * an unexpectedly huge collection into an unbounded in-memory operation.
+ */
+export const MAX_MANIFEST_COLLECTION_ITEMS = 100_000;
+
+function isManifestRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isBoundedArray(value: unknown): value is unknown[] {
+  return Array.isArray(value) && value.length <= MAX_MANIFEST_COLLECTION_ITEMS;
+}
+
+function isBoundedRecordArray(value: unknown): value is Record<string, unknown>[] {
+  if (!isBoundedArray(value)) return false;
+  return value.every((entry) => isManifestRecord(entry) && typeof entry.id === 'string' && entry.id.length > 0 && entry.id.length <= 256);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return isBoundedArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+/** Minimal schema guard used before restoring a decrypted backup. */
+export function isVaultManifest(value: unknown): value is VaultManifest {
+  if (!isManifestRecord(value)) return false;
+  if (
+    typeof value.manifestVersion !== 'string' ||
+    typeof value.vaultId !== 'string' ||
+    typeof value.createdAt !== 'string' ||
+    (value.workspacePath !== undefined && typeof value.workspacePath !== 'string')
+  ) {
+    return false;
+  }
+
+  const requiredCollections = [
+    value.cases,
+    value.documents,
+    value.documentVersions,
+    value.extractedFields,
+    value.events,
+    value.deadlines,
+    value.legalSources,
+    value.legalAnalyses,
+    value.letters,
+  ];
+  if (!requiredCollections.every(isBoundedRecordArray)) return false;
+
+  if (!(value.cases as Record<string, unknown>[]).every((entry) => (
+    typeof entry.title === 'string' &&
+    typeof entry.authorityOrOpponentName === 'string' &&
+    typeof entry.authorityJurisdictionReason === 'string' &&
+    isStringArray(entry.missingFacts) &&
+    (entry.institutions === undefined || (
+      isBoundedRecordArray(entry.institutions) &&
+      entry.institutions.every((institution) => typeof institution.name === 'string' && isStringArray(institution.roles))
+    ))
+  ))) return false;
+  if (!(value.documents as Record<string, unknown>[]).every((entry) => (
+    typeof entry.originalFileName === 'string' &&
+    typeof entry.mimeType === 'string' &&
+    typeof entry.activeVersionId === 'string' &&
+    isStringArray(entry.caseIds)
+  ))) return false;
+  if (!(value.documentVersions as Record<string, unknown>[]).every((entry) => (
+    typeof entry.documentId === 'string' &&
+    typeof entry.contentSha256 === 'string' &&
+    (entry.textPayload === undefined || typeof entry.textPayload === 'string')
+  ))) return false;
+
+  // These collections were added after the first backup format. Missing
+  // values are normalized by LocalVault.restoreFromEncryptedBackup().
+  return (
+    (value.relations === undefined || isBoundedRecordArray(value.relations)) &&
+    (value.inboxProposals === undefined || isBoundedRecordArray(value.inboxProposals)) &&
+    (value.history === undefined || isBoundedRecordArray(value.history))
+  );
+}
+
+/** Validate and normalize a decrypted backup manifest for callers outside LocalVault. */
+export function parseVaultManifest(value: unknown): VaultManifest {
+  if (!isVaultManifest(value)) {
+    throw new Error('Nieprawidłowy lub niekompletny manifest zaszyfrowanej kopii.');
+  }
+  return {
+    ...value,
+    relations: value.relations ?? [],
+    inboxProposals: value.inboxProposals ?? [],
+    history: value.history ?? [],
+  };
+}

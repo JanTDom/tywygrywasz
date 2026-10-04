@@ -27,6 +27,7 @@ import {
   InboxProposal,
   DiskOperationHistoryEntry,
   VaultManifest,
+  parseVaultManifest,
 } from './types';
 
 export class LocalVault {
@@ -126,8 +127,12 @@ export class LocalVault {
     subfolder?: CaseSubfolder;
     diskRelativePath?: string;
     institutionIds?: string[];
+    /** For browser imports, keep the raw-byte hash/size while storing only a
+     * small text placeholder in the encrypted manifest. */
+    originalSha256?: string;
+    fileSize?: number;
   }): Promise<{ document: DocumentRecord; initialVersion: DocumentVersion; isDuplicate: boolean }> {
-    const contentHash = await computeSha256(params.content);
+    const contentHash = params.originalSha256 || await computeSha256(params.content);
 
     // Wykrywanie dokładnego duplikatu według hasha SHA-256
     let isDuplicate = false;
@@ -170,7 +175,7 @@ export class LocalVault {
       origin: params.origin,
       originalFileName: params.originalFileName,
       mimeType: params.mimeType,
-      fileSize: new TextEncoder().encode(params.content).length,
+      fileSize: params.fileSize ?? new TextEncoder().encode(params.content).length,
       originalSha256: contentHash,
       diskRelativePath: diskPath,
       subfolder,
@@ -386,8 +391,13 @@ export class LocalVault {
     passphrase: string
   ): Promise<LocalVault> {
     const decryptedJson = await decryptVault(container, passphrase);
-    const manifest = JSON.parse(decryptedJson) as VaultManifest;
-    return LocalVault.fromManifest(manifest);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(decryptedJson) as unknown;
+    } catch {
+      throw new Error('Kopia została odszyfrowana, ale zawiera nieprawidłowy JSON.');
+    }
+    return LocalVault.fromManifest(parseVaultManifest(parsed));
   }
 
   public static fromManifest(manifest: VaultManifest): LocalVault {

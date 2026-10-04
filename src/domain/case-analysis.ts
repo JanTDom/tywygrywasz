@@ -14,6 +14,7 @@ import {
   EvidenceMatrixItem,
   ExtractedField,
   LegalAnalysis,
+  LegalSource,
   MissingInformationItem,
   ProceduralDeadline,
   getCaseInstitutions,
@@ -25,10 +26,12 @@ export interface BuildCaseAnalysisInput {
   extractedFields: ExtractedField[];
   events: CaseEvent[];
   deadlines: ProceduralDeadline[];
+  /** Legal sources are supplied by the local vault. Never infer verification from a document alone. */
+  legalSources?: LegalSource[];
 }
 
 export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalAnalysis {
-  const { caseRecord, documents, extractedFields, events, deadlines } = input;
+  const { caseRecord, documents, extractedFields, events, deadlines, legalSources = [] } = input;
   const institutions = getCaseInstitutions(caseRecord);
   const institutionNames = institutions.map((institution) => institution.name).join(', ');
 
@@ -68,13 +71,18 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
 
   // 3. Macierz dowodów i sprzeczności
   const evidenceMatrix: EvidenceMatrixItem[] = [];
-  documents.forEach((doc, idx) => {
+  documents.forEach((doc) => {
+    const confirmedExtraction = extractedFields.some(
+      (field) => field.documentId === doc.id && field.status === 'confirmed' && field.ocrConfidence >= 0.9,
+    );
     evidenceMatrix.push({
       id: `ev-${doc.id}`,
       fact: `Przedłożono dokument: ${doc.originalFileName}`,
       supportedByDocId: doc.id,
       supportedBySnippet: `Dokument typu: ${doc.type}, pochodzenie: ${doc.origin}, rozmiar: ${doc.fileSize} B.`,
-      confidence: 'proven',
+      // A file proves that it exists, not that every fact inferred from it is true.
+      // Only a user-confirmed high-confidence extraction can move this to probable.
+      confidence: confirmedExtraction ? 'probable' : 'unproven',
     });
   });
 
@@ -205,8 +213,10 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
     claims: [
       {
         claim: `Użytkownik dochodzi roszczenia lub ochrony prawnej w sprawie obejmującej: ${institutionNames}.`,
-        sourceId: 'GEN-SOURCE',
-        interpretationNote: 'Podstawa faktyczna i dowodowa zebrana w katalogu sprawy.',
+        sourceId: legalSources.find((source) => source.verificationStatus === 'verified')?.id || 'UNVERIFIED-LOCAL-ANALYSIS',
+        interpretationNote: legalSources.some((source) => source.verificationStatus === 'verified')
+          ? 'Analiza robocza oparta na źródłach prawnych zapisanych w lokalnym sejfie; sprawdź ich zastosowanie do faktów sprawy.'
+          : 'Analiza robocza bez potwierdzonego źródła prawnego. Zweryfikuj podstawę prawną i fakty przed działaniem.',
       },
     ],
     actionVariants: [
@@ -232,7 +242,7 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
     counterArguments: [
       'Druga strona może podnieść zarzut uchybienia terminu lub braku podstaw roszczenia.',
     ],
-    verificationStatus: 'verified',
+    verificationStatus: legalSources.some((source) => source.verificationStatus === 'verified') ? 'requires_lawyer' : 'unverified',
     parties,
     demands,
     evidenceMatrix,

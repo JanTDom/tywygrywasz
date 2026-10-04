@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSession, verifyCredentials } from '@/domain/auth-store';
-import { csrfIsValid, jsonError, parseJsonBody, setSessionCookie } from '../_utils';
+import { csrfIsValid, enforceRateLimit, jsonError, parseJsonBody, setSessionCookie } from '../_utils';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
+  const limited = enforceRateLimit(request, 'auth-login', 10);
+  if (limited) return limited;
   if (!csrfIsValid(request)) return jsonError('Nieprawidłowy token formularza. Odśwież stronę i spróbuj ponownie.', 403);
   try {
     const body = await parseJsonBody(request);

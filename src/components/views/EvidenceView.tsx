@@ -108,7 +108,7 @@ export function EvidenceView({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">{p.name}</span>
                     <span className="text-[10px] uppercase font-bold text-slate-600 bg-slate-200 px-1.5 py-0.5 rounded">
-                      {p.role === 'citizen' ? 'Obywatel' : 'Druga strona'}
+                      {p.role === 'citizen' ? 'Użytkownik' : 'Druga strona'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed">

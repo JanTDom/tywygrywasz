@@ -98,7 +98,7 @@ export function TimelineView({
       case 'document_sent':
         return 'Wysłanie przesyłki';
       case 'citizen_action':
-        return 'Działanie obywatela';
+        return 'Działanie użytkownika';
       case 'deadline_calculated':
         return 'Koniec terminu procesowego';
       case 'payment_due':

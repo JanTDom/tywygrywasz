@@ -139,7 +139,7 @@ export function extractFieldsFromText(params: {
     documentId,
     versionId,
     fieldName: 'delivery_date',
-    label: 'Data doręczenia obywatelowi',
+    label: 'Data doręczenia użytkownikowi',
     rawValue: '',
     status: 'unknown',
     pageNumber: 1,

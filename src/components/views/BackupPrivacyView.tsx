@@ -148,7 +148,7 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `obywatel_kopia_sejfu_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `tywygrywasz_kopia_sejfu_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };

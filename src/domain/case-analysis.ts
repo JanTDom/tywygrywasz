@@ -33,7 +33,7 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
   const parties: CaseParty[] = [
     {
       id: 'party-citizen',
-      name: 'Obywatel / Użytkownik',
+      name: 'TyWygrywasz / Użytkownik',
       role: 'citizen',
       stance: caseRecord.goalDescription,
     },
@@ -194,7 +194,7 @@ export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalA
     missingFacts: missingInformation.map((m) => m.question),
     claims: [
       {
-        claim: `Obywatel dochodzi roszczenia lub ochrony prawnej przeciwko: ${caseRecord.authorityOrOpponentName}.`,
+        claim: `Użytkownik dochodzi roszczenia lub ochrony prawnej przeciwko: ${caseRecord.authorityOrOpponentName}.`,
         sourceId: 'GEN-SOURCE',
         interpretationNote: 'Podstawa faktyczna i dowodowa zebrana w katalogu sprawy.',
       },

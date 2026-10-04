@@ -47,7 +47,7 @@ import { EncryptedContainer, decryptVault } from '../domain/crypto';
 import { LocalOcrEngine } from '../domain/ocr-engine';
 import { E2EESyncEngine } from '../domain/sync-engine';
 
-export default function ObywatelApp() {
+export default function TyWygrywaszApp() {
   const [vault, setVault] = useState<LocalVault>(() => {
     if (typeof window !== 'undefined') {
       const storedProfile = window.localStorage.getItem('obywatel-profile');

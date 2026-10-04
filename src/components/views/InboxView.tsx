@@ -44,7 +44,7 @@ export function InboxView({
   const subfolderOptions: { id: CaseSubfolder; label: string }[] = [
     { id: '00_Plan_i_opis', label: '00_Plan_i_opis' },
     { id: '01_Otrzymane', label: '01_Otrzymane (pisma z urzędu/firmy)' },
-    { id: '02_Wyslane', label: '02_Wyslane (pisma obywatela)' },
+    { id: '02_Wyslane', label: '02_Wyslane (pisma użytkownika)' },
     { id: '03_Dowody', label: '03_Dowody (faktury, zdjęcia, wypisy)' },
     { id: '04_Potwierdzenia', label: '04_Potwierdzenia (zwrotki pocztowe, UPO)' },
     { id: '05_Projekty_pism', label: '05_Projekty_pism (szkice i formularze)' },

@@ -172,7 +172,7 @@ export function LegalKnowledgeView({ sources }: LegalKnowledgeViewProps) {
           Zastrzeżenie metodologiczne i jurysdykcyjne
         </h2>
         <p>
-          Baza normatywna programu &quot;Obywatel&quot; bazuje na oficjalnych publikatorach Rzeczypospolitej Polskiej
+          Baza normatywna TyWygrywasz.pl bazuje na oficjalnych publikatorach Rzeczypospolitej Polskiej
           (Dziennik Ustaw, Monitor Polski, Centralna Baza Orzeczeń Sądów Administracyjnych). Żadna analiza wygenerowana
           przez model językowy nie zastępuje indywidualnej porady prawnej adwokata, radcy prawnego ani rzecznika konsumentów.
         </p>

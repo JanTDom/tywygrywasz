@@ -78,11 +78,20 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="eyebrow">{cases.length ? 'CENTRUM SPRAW' : 'TWOJA SPRAWA. TWÓJ PLAN.'}</div>
-          <h1 className="page-title">{cases.length ? 'Dziś w Twoich sprawach' : 'Zacznij od jednego kroku.'}</h1>
-          <p className="page-lede">{cases.length ? 'Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.' : 'Uporządkuj dokumenty, zobacz terminy i wybierz kolejne działanie — spokojnie, we własnym tempie.'}</p>
+          <h1 className="page-title">{cases.length ? 'Dziś w Twoich sprawach' : 'Twoja sprawa. Dokumenty, terminy, następny krok.'}</h1>
+          <p className="page-lede">{cases.length ? 'Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.' : 'TyWygrywasz pomaga prowadzić sprawę od pierwszego pisma do działania — spokojnie, we własnym tempie.'}</p>
         </div>
         <div className="today-date">{today}</div>
       </div>
+
+      <section className="purpose-banner" aria-labelledby="purpose-banner-title">
+        <div className="purpose-banner-mark"><Sparkles size={16} /> DO CZEGO SŁUŻY TYWYGRYWASZ?</div>
+        <div className="purpose-banner-copy">
+          <h2 id="purpose-banner-title">Jedno miejsce do prowadzenia całej sprawy.</h2>
+          <p>Porządkujesz dokumenty, łączysz wiele instytucji, pilnujesz terminów i zawsze widzisz następny krok. Czat AI odpowiada na pytanie — TyWygrywasz zachowuje kontekst i pomaga doprowadzić sprawę do końca.</p>
+        </div>
+        <button type="button" className="purpose-banner-privacy" onClick={() => onNavigate('privacy')}><LockKeyhole size={15} /> Lokalnie i szyfrowane <ArrowRight size={14} /></button>
+      </section>
 
       {!cases.length ? (
         <>

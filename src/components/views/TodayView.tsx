@@ -77,13 +77,70 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
     <div className="space-y-7">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="eyebrow">CENTRUM SPRAW</div>
-          <h1 className="page-title">Dziś w Twoich sprawach</h1>
-          <p className="page-lede">Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.</p>
+          <div className="eyebrow">{cases.length ? 'CENTRUM SPRAW' : 'TWOJA SPRAWA. TWÓJ PLAN.'}</div>
+          <h1 className="page-title">{cases.length ? 'Dziś w Twoich sprawach' : 'Zacznij od jednego kroku.'}</h1>
+          <p className="page-lede">{cases.length ? 'Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.' : 'Uporządkuj dokumenty, zobacz terminy i wybierz kolejne działanie — spokojnie, we własnym tempie.'}</p>
         </div>
         <div className="today-date">{today}</div>
       </div>
 
+      {!cases.length ? (
+        <>
+          <section className="photo-landing" aria-labelledby="photo-landing-title">
+            <div className="photo-landing-copy">
+              <div className="photo-landing-copy-mark"><ShieldCheck size={17} /> Dokumenty zostają na tym urządzeniu</div>
+              <h2 id="photo-landing-title">Twoja sprawa zasługuje na spokojny plan.</h2>
+              <p>Od pierwszego pisma do następnego kroku — zbierz fakty, uporządkuj dokumenty i działaj we własnym tempie.</p>
+              <div className="photo-landing-actions">
+                <button type="button" className="button-primary" onClick={() => onNavigate('cases')}>Załóż pierwszą sprawę <ArrowRight size={17} /></button>
+                <button type="button" className="button-link photo-landing-secondary" onClick={() => onNavigate('disk')}>Dodaj dokument <Upload size={16} /></button>
+              </div>
+              <div className="photo-landing-trust"><LockKeyhole size={15} /> Lokalny sejf działa od razu. To Ty decydujesz, co synchronizujesz.</div>
+            </div>
+            <figure className="photo-landing-media">
+              <picture>
+                <source media="(max-width: 640px)" srcSet="/images/sprawa-warszawa-640.webp" />
+                <source media="(max-width: 1180px)" srcSet="/images/sprawa-warszawa-960.webp" />
+                <img src="/images/sprawa-warszawa-1600.webp" srcSet="/images/sprawa-warszawa-640.webp 640w, /images/sprawa-warszawa-960.webp 960w, /images/sprawa-warszawa-1600.webp 1600w" sizes="(max-width: 1180px) 100vw, 58vw" width="1600" height="900" fetchPriority="high" alt="Trzy osoby wychodzą przed Urzędem m.st. Warszawy z dokumentami" />
+              </picture>
+              <figcaption>Wsparcie zaczyna się od uporządkowanych faktów.</figcaption>
+            </figure>
+          </section>
+
+          <section className="photo-journey" aria-labelledby="photo-journey-title">
+            <figure className="photo-journey-main">
+              <picture>
+                <source media="(max-width: 640px)" srcSet="/images/wspolny-krok-640.webp" />
+                <img src="/images/wspolny-krok-960.webp" srcSet="/images/wspolny-krok-640.webp 640w, /images/wspolny-krok-960.webp 960w, /images/wspolny-krok-1600.webp 1600w" sizes="(max-width: 760px) 100vw, 52vw" width="1600" height="900" loading="lazy" alt="Para wspólnie czyta pismo przy laptopie" />
+              </picture>
+              <figcaption>Nie musisz porządkować wszystkiego naraz.</figcaption>
+            </figure>
+            <div className="photo-journey-copy">
+              <div className="panel-kicker"><CheckCircle2 size={16} /> OD DOKUMENTU DO DZIAŁANIA</div>
+              <h2 id="photo-journey-title">Kiedy wiesz, co masz, łatwiej zdecydować, co dalej.</h2>
+              <p>TyWygrywasz.pl pomaga przejść od stosu dokumentów do jasnego planu: co już wiesz, czego brakuje i jaki krok możesz wykonać teraz.</p>
+              <button type="button" className="button-secondary" onClick={() => { setShowDemo(true); window.setTimeout(() => document.getElementById('demo-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 0); }}><Play size={15} /> Zobacz przykład działania</button>
+            </div>
+          </section>
+
+          <div className="photo-detail-strip" aria-label="Porządkowanie dokumentów">
+            <figure>
+              <picture>
+                <source media="(max-width: 640px)" srcSet="/images/porzadek-dokumenty-640.webp" />
+                <img src="/images/porzadek-dokumenty-640.webp" srcSet="/images/porzadek-dokumenty-640.webp 640w, /images/porzadek-dokumenty-960.webp 960w" sizes="(max-width: 760px) 100vw, 34vw" width="960" height="540" loading="lazy" alt="Osoba porządkuje decyzję i dokumenty przy biurku" />
+              </picture>
+              <figcaption>Odczytaj i uporządkuj</figcaption>
+            </figure>
+            <figure>
+              <picture>
+                <source media="(max-width: 640px)" srcSet="/images/spokojny-plan-640.webp" />
+                <img src="/images/spokojny-plan-640.webp" srcSet="/images/spokojny-plan-640.webp 640w, /images/spokojny-plan-960.webp 960w" sizes="(max-width: 760px) 100vw, 34vw" width="960" height="540" loading="lazy" alt="Osoba pracuje wieczorem nad dokumentami" />
+              </picture>
+              <figcaption>Zachowaj swój rytm</figcaption>
+            </figure>
+          </div>
+        </>
+      ) : (
       <section className="surface hero-grid dashboard-next" aria-labelledby="next-step-title">
         <div className="dashboard-next-icon" aria-hidden="true"><Sparkles size={25} /></div>
         <div className="dashboard-next-copy">
@@ -119,6 +176,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
           <button type="button" className="button-link" onClick={() => onNavigate(primaryAction ? primaryAction.destination : 'cases', primaryCase?.id)}>Zobacz szczegóły <ArrowUpRight size={15} /></button>
         </div>
       </section>
+      )}
 
       {unknownDateDeadlines.length > 0 && (
         <section className="notice-card notice-amber" aria-labelledby="delivery-title">
@@ -207,7 +265,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
 
       <section className="dashboard-bottom">
         <div className="quick-actions"><div className="panel-kicker"><Plus size={16} /> SKRÓTY</div><h2>Co chcesz zrobić teraz?</h2><div className="quick-action-list"><button type="button" onClick={() => onNavigate('cases')}><FolderPlus size={18} /><span>Założyć nową sprawę</span><ArrowRight size={15} /></button><button type="button" onClick={() => onNavigate('disk')}><Upload size={18} /><span>Dodać dokument z dysku</span><ArrowRight size={15} /></button><button type="button" onClick={() => onNavigate('letters')}><FilePlus2 size={18} /><span>Przygotować pismo</span><ArrowRight size={15} /></button></div></div>
-        <div className="demo-card"><div className="panel-kicker"><Sparkles size={16} /> PIERWSZY RAZ?</div><h2>Zobacz, jak działa TyWygrywasz.pl</h2><p>Możesz wczytać jawnie oznaczone dane syntetyczne i przejść cały przebieg bez używania własnych dokumentów.</p>{showDemo ? <button type="button" className="button-secondary" onClick={onLoadSyntheticDemo} disabled={isLoadingDemo}><Play size={15} /> {isLoadingDemo ? 'Wczytuję…' : 'Wczytaj przykład'}</button> : <button type="button" className="button-link" onClick={() => setShowDemo(true)}>Pokaż opcję demonstracyjną <ArrowRight size={15} /></button>}</div>
+        <div className="demo-card" id="demo-card"><div className="panel-kicker"><Sparkles size={16} /> PIERWSZY RAZ?</div><h2>Zobacz, jak działa TyWygrywasz.pl</h2><p>Możesz wczytać jawnie oznaczone dane syntetyczne i przejść cały przebieg bez używania własnych dokumentów.</p>{showDemo ? <button type="button" className="button-secondary" onClick={onLoadSyntheticDemo} disabled={isLoadingDemo}><Play size={15} /> {isLoadingDemo ? 'Wczytuję…' : 'Wczytaj przykład'}</button> : <button type="button" className="button-link" onClick={() => setShowDemo(true)}>Pokaż opcję demonstracyjną <ArrowRight size={15} /></button>}</div>
       </section>
     </div>
   );

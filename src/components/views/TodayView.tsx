@@ -75,31 +75,40 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
 
   return (
     <div className="space-y-7">
+      <section className="purpose-ticker" aria-label="Do czego służy TyWygrywasz">
+        <div className="purpose-ticker-label"><Sparkles size={14} /> PO CO JEST TYWYGRYWASZ?</div>
+        <div className="purpose-ticker-copy">
+          <strong>Porządkujesz dokumenty, łączysz wiele instytucji i widzisz następny krok.</strong>
+          <div className="purpose-ticker-window" aria-label="TyWygrywasz zachowuje kontekst całej sprawy i chroni Twoje dokumenty">
+            <div className="purpose-ticker-track">
+              <span>Materiały zostają na urządzeniu.</span><b aria-hidden="true">✦</b>
+              <span>Terminy nie giną w rozmowie.</span><b aria-hidden="true">✦</b>
+              <span>Każda instytucja ma swoje miejsce.</span><b aria-hidden="true">✦</b>
+              <span aria-hidden="true">Materiały zostają na urządzeniu.</span><b aria-hidden="true">✦</b>
+              <span aria-hidden="true">Terminy nie giną w rozmowie.</span><b aria-hidden="true">✦</b>
+              <span aria-hidden="true">Każda instytucja ma swoje miejsce.</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" className="purpose-ticker-privacy" onClick={() => onNavigate('privacy')}><LockKeyhole size={14} /> Lokalnie i szyfrowane <ArrowRight size={13} /></button>
+      </section>
+
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="eyebrow">{cases.length ? 'CENTRUM SPRAW' : 'TWOJA SPRAWA. TWÓJ PLAN.'}</div>
-          <h1 className="page-title">{cases.length ? 'Dziś w Twoich sprawach' : 'Twoja sprawa. Dokumenty, terminy, następny krok.'}</h1>
-          <p className="page-lede">{cases.length ? 'Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.' : 'TyWygrywasz pomaga prowadzić sprawę od pierwszego pisma do działania — spokojnie, we własnym tempie.'}</p>
+          <div className="eyebrow">{cases.length ? 'CENTRUM SPRAW' : 'TYWYGRYWASZ · TWÓJ PLAN'}</div>
+          <h1 className="page-title">{cases.length ? 'Dziś w Twoich sprawach' : 'Prowadź całą sprawę. Krok po kroku.'}</h1>
+          <p className="page-lede">{cases.length ? 'Najważniejsze informacje, dokumenty i następny krok w jednym miejscu.' : 'Dokumenty, wiele instytucji i terminy w jednym spokojnym planie działania.'}</p>
         </div>
         <div className="today-date">{today}</div>
       </div>
-
-      <section className="purpose-banner" aria-labelledby="purpose-banner-title">
-        <div className="purpose-banner-mark"><Sparkles size={16} /> DO CZEGO SŁUŻY TYWYGRYWASZ?</div>
-        <div className="purpose-banner-copy">
-          <h2 id="purpose-banner-title">Jedno miejsce do prowadzenia całej sprawy.</h2>
-          <p>Porządkujesz dokumenty, łączysz wiele instytucji, pilnujesz terminów i zawsze widzisz następny krok. Czat AI odpowiada na pytanie — TyWygrywasz zachowuje kontekst i pomaga doprowadzić sprawę do końca.</p>
-        </div>
-        <button type="button" className="purpose-banner-privacy" onClick={() => onNavigate('privacy')}><LockKeyhole size={15} /> Lokalnie i szyfrowane <ArrowRight size={14} /></button>
-      </section>
 
       {!cases.length ? (
         <>
           <section className="photo-landing" aria-labelledby="photo-landing-title">
             <div className="photo-landing-copy">
               <div className="photo-landing-copy-mark"><ShieldCheck size={17} /> Dokumenty zostają na tym urządzeniu</div>
-              <h2 id="photo-landing-title">Twoja sprawa zasługuje na spokojny plan.</h2>
-              <p>Czat odpowiada na jedno pytanie. TyWygrywasz łączy dokumenty, terminy i wiele instytucji w jeden plan — od pierwszego pisma do następnego kroku.</p>
+              <h2 id="photo-landing-title">Spokojny plan zaczyna się od dokumentów.</h2>
+              <p>Połącz pisma, terminy i wiele instytucji. Zobacz, co już wiesz i jaki krok możesz wykonać teraz.</p>
               <div className="photo-landing-actions">
                 <button type="button" className="button-primary" onClick={() => onNavigate('cases')}>Załóż pierwszą sprawę <ArrowRight size={17} /></button>
                 <button type="button" className="button-link photo-landing-secondary" onClick={() => onNavigate('disk')}>Dodaj dokument <Upload size={16} /></button>

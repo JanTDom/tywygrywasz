@@ -87,8 +87,9 @@ export function DiskDocumentsView({
             Dokumenty na dysku
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Fizyczny katalog <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs text-slate-800">Moje_sprawy/</code>.
-            Pliki nie są wysyłane na serwer zewnętrzny; OCR i ekstrakcja działają lokalnie.
+            W wersji webowej pliki trafiają do zaszyfrowanego magazynu przeglądarki na tym urządzeniu — nie do naszej chmury.
+            W lokalnym trybie możesz pracować z katalogiem <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs text-slate-800">Moje_sprawy/</code>.
+            OCR i ekstrakcja działają lokalnie.
           </p>
           <p className="text-xs text-slate-500 mt-2">Obsługiwane formaty: DOC, RTF, TXT, PDF, JPG, JPEG i PNG.</p>
         </div>

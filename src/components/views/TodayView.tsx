@@ -90,7 +90,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
             <div className="photo-landing-copy">
               <div className="photo-landing-copy-mark"><ShieldCheck size={17} /> Dokumenty zostają na tym urządzeniu</div>
               <h2 id="photo-landing-title">Twoja sprawa zasługuje na spokojny plan.</h2>
-              <p>Od pierwszego pisma do następnego kroku — zbierz fakty, uporządkuj dokumenty i działaj we własnym tempie.</p>
+              <p>Czat odpowiada na jedno pytanie. TyWygrywasz łączy dokumenty, terminy i wiele instytucji w jeden plan — od pierwszego pisma do następnego kroku.</p>
               <div className="photo-landing-actions">
                 <button type="button" className="button-primary" onClick={() => onNavigate('cases')}>Załóż pierwszą sprawę <ArrowRight size={17} /></button>
                 <button type="button" className="button-link photo-landing-secondary" onClick={() => onNavigate('disk')}>Dodaj dokument <Upload size={16} /></button>
@@ -177,6 +177,44 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
         </div>
       </section>
       )}
+
+      <section className="value-bridge" aria-labelledby="value-bridge-title">
+        <div className="value-bridge-head">
+          <div>
+            <div className="panel-kicker"><Sparkles size={16} /> DLACZEGO TYWYGRYWASZ?</div>
+            <h2 id="value-bridge-title">Czat AI odpowiada. TyWygrywasz prowadzi całą sprawę.</h2>
+            <p>Ogólny czat daje pojedynczą odpowiedź. TyWygrywasz pamięta całą sprawę: dokumenty, terminy, wersje pism i wszystkie instytucje, które biorą w niej udział.</p>
+          </div>
+          <div className="value-bridge-badge"><ShieldCheck size={16} /> Dane domyślnie zostają na urządzeniu</div>
+        </div>
+
+        <div className="value-bridge-grid">
+          <article className="value-bridge-card">
+            <span className="value-bridge-icon value-bridge-icon-teal"><FolderPlus size={18} /></span>
+            <h3>Jeden obraz sprawy</h3>
+            <p>Łączysz pisma, dowody, daty i instytucje w jednym miejscu. Nic nie ginie w kolejnych rozmowach.</p>
+          </article>
+          <article className="value-bridge-card">
+            <span className="value-bridge-icon value-bridge-icon-blue"><ArrowRight size={18} /></span>
+            <h3>Następny krok zamiast kolejnej porady</h3>
+            <p>Dostajesz plan działania, terminy i listę braków. Ty zatwierdzasz informacje i decydujesz, co robisz dalej.</p>
+          </article>
+          <article className="value-bridge-card">
+            <span className="value-bridge-icon value-bridge-icon-mint"><LockKeyhole size={18} /></span>
+            <h3>Prywatność od pierwszego pliku</h3>
+            <p>Domyślnie dokumenty i ich odczyt zostają na Twoim urządzeniu. Żadna chmura nie jest potrzebna do codziennej pracy.</p>
+          </article>
+        </div>
+
+        <div className="value-bridge-privacy">
+          <div className="value-bridge-privacy-icon"><LockKeyhole size={21} /></div>
+          <div className="value-bridge-privacy-copy">
+            <h3>Co dokładnie dzieje się z dokumentem?</h3>
+            <p>Po dodaniu pliku jego treść trafia do lokalnego, zaszyfrowanego magazynu przeglądarki na Twoim urządzeniu. W trybie lokalnym możesz też pracować z katalogiem <strong>Moje_sprawy/</strong> na dysku. Bez klucza sejfu dane są nieczytelne. Przy opcjonalnej synchronizacji serwer otrzymuje tylko szyfrogram — nie treść dokumentu.</p>
+          </div>
+          <button type="button" className="button-link" onClick={() => onNavigate('privacy')}>Zobacz ochronę danych <ArrowRight size={15} /></button>
+        </div>
+      </section>
 
       {unknownDateDeadlines.length > 0 && (
         <section className="notice-card notice-amber" aria-labelledby="delivery-title">

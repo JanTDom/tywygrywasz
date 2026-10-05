@@ -37,6 +37,11 @@ body {
 
 button, input, select, textarea { font: inherit; }
 
+:where(h1, h2, h3, h4, p, li, small, figcaption) {
+  widows: 2;
+  orphans: 2;
+}
+
 :focus-visible {
   outline: 3px solid rgba(8, 127, 111, 0.55);
   outline-offset: 2px;

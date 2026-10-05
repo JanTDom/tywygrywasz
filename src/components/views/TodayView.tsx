@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -49,6 +49,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
   const [showDemo, setShowDemo] = useState(false);
   const [scheduleFilter, setScheduleFilter] = useState<ActionScheduleFilter>('all');
   const [scheduleCase, setScheduleCase] = useState('all');
+  const defenseRouteRef = useRef<HTMLDivElement>(null);
   const today = useMemo(() => formatDate(new Date()), []);
   const schedule = useMemo(() => buildActionSchedule(cases, deadlines), [cases, deadlines]);
   const visibleSchedule = useMemo(() => filterActionSchedule(schedule, scheduleFilter, scheduleCase), [schedule, scheduleFilter, scheduleCase]);
@@ -57,6 +58,35 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
   const primaryCase = primaryAction?.caseRecord || cases[0];
   const unknownDateDeadlines = schedule.filter((item) => item.needsDeliveryDate && item.deadline).map((item) => item.deadline as ProceduralDeadline);
   const activeDeadlines = schedule.filter((item) => item.deadline && item.category !== 'unknown').map((item) => item.deadline as ProceduralDeadline);
+
+  useLayoutEffect(() => {
+    const route = defenseRouteRef.current;
+    if (!route) return;
+    const updateGeometry = () => {
+      const routeRect = route.getBoundingClientRect();
+      const icons = Array.from(route.querySelectorAll<HTMLElement>('.defense-rail-icon'));
+      const centers = icons.map((icon) => {
+        const rect = icon.getBoundingClientRect();
+        return rect.left - routeRect.left + rect.width / 2;
+      });
+      centers.forEach((center, index) => {
+        route.style.setProperty(`--defense-stage-${index + 1}`, `${center - 18.5}px`);
+      });
+      if (centers.length > 1) {
+        route.style.setProperty('--defense-line-start', `${centers[0]}px`);
+        route.style.setProperty('--defense-line-width', `${centers[centers.length - 1] - centers[0]}px`);
+      }
+      route.style.setProperty('--defense-stage-exit', `${routeRect.width - 18.5}px`);
+    };
+    updateGeometry();
+    const observer = new ResizeObserver(updateGeometry);
+    observer.observe(route);
+    window.addEventListener('resize', updateGeometry);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateGeometry);
+    };
+  }, []);
 
   const confirmDate = () => {
     if (!dateInput || !primaryDeadline) return;
@@ -84,7 +114,7 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
           </div>
           <div className="defense-rail-status"><span className="defense-rail-status-dot" /> PLAN SPRAWY AKTYWNY</div>
         </div>
-        <div className="defense-rail-route" role="img" aria-label="Animacja procesu: urząd wysyła pismo, TyWygrywasz porządkuje fakty i instytucję, pilnuje terminu, a Ty wykonujesz kolejny ruch">
+        <div ref={defenseRouteRef} className="defense-rail-route" role="img" aria-label="Animacja procesu: urząd wysyła pismo, TyWygrywasz porządkuje fakty i instytucję, pilnuje terminu, a Ty wykonujesz kolejny ruch">
           <div className="defense-rail-line" aria-hidden="true" />
           <div className="defense-rail-beam" aria-hidden="true" />
           <div className="defense-rail-packet" aria-hidden="true"><FilePlus2 size={13} /><span>PISMO</span><i /></div>

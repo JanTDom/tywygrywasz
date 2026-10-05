@@ -62,7 +62,7 @@ const DEFAULT_SELLER: CommerceSeller = {
   address: 'ul. Barcicka 44, 01-839 Warszawa',
   taxId: '5252189241',
   regon: '147154574',
-  email: 'kontakt@kodtalentu.pl',
+  email: 'kontakt@tywygrywasz.pl',
 };
 
 function env(name: string): string {

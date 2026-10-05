@@ -19,7 +19,7 @@ export default function TermsPage() {
       <h2>5. Reklamacje i kontakt</h2>
       <p>Problem techniczny lub reklamację opisz na stronie <a className="commerce-inline-link" href="/kontakt">kontaktu</a>, podając datę i opis zdarzenia bez przesyłania treści wrażliwych, jeśli nie jest to konieczne. Odpowiedź otrzymasz na adres przypisany do konta.</p>
       <h2>6. Sprzedawca</h2>
-      {sellerReady ? <p>{config.seller.name}, {config.seller.address}, NIP {config.seller.taxId}, {config.seller.email}.</p> : <p>Pełne dane sprzedawcy zostaną opublikowane przed rozpoczęciem sprzedaży.</p>}
+      {sellerReady ? <p>{config.seller.name}, {config.seller.address}, NIP {config.seller.taxId}{config.seller.regon ? `, REGON ${config.seller.regon}` : ''}, {config.seller.email}.</p> : <p>Pełne dane sprzedawcy zostaną opublikowane przed rozpoczęciem sprzedaży.</p>}
       <p className="commerce-note">Regulamin wymaga uzupełnienia przez właściciela serwisu i weryfikacji przed przyjęciem pierwszej płatności.</p>
     </div></article>
   </CommerceLayout>;

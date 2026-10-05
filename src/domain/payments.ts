@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from './auth-store';
+import { getPublicCommerceConfig } from './commerce-config';
 
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled';
 
@@ -47,16 +48,19 @@ function configuredAmount(): number | null {
 /** Configuration is deliberately server-only and fails closed when incomplete. */
 export function getPaymentReadiness(): PaymentReadiness {
   const missing: string[] = [];
+  const commerce = getPublicCommerceConfig();
   if (!positiveInt(process.env.P24_MERCHANT_ID)) missing.push('P24_MERCHANT_ID');
   if (!positiveInt(process.env.P24_POS_ID)) missing.push('P24_POS_ID');
   for (const [names, label] of [
     [['P24_CRC'], 'P24_CRC'], [['P24_API_KEY'], 'P24_API_KEY'], [['P24_RETURN_URL'], 'P24_RETURN_URL'], [['P24_STATUS_URL'], 'P24_STATUS_URL'],
-    [['P24_OFFER_NAME', 'COMMERCE_OFFER_NAME'], 'P24_OFFER_NAME/COMMERCE_OFFER_NAME'], [['P24_SELLER_NAME', 'COMMERCE_SELLER_NAME'], 'P24_SELLER_NAME/COMMERCE_SELLER_NAME'],
-    [['P24_SELLER_ADDRESS', 'COMMERCE_SELLER_ADDRESS'], 'P24_SELLER_ADDRESS/COMMERCE_SELLER_ADDRESS'], [['P24_SELLER_TAX_ID', 'COMMERCE_SELLER_TAX_ID'], 'P24_SELLER_TAX_ID/COMMERCE_SELLER_TAX_ID'],
-    [['P24_SELLER_EMAIL', 'COMMERCE_SELLER_EMAIL'], 'P24_SELLER_EMAIL/COMMERCE_SELLER_EMAIL'],
   ] as [string[], string][]) {
     if (!anyRequired(...names)) missing.push(label);
   }
+  if (!commerce.offer.name) missing.push('nazwa oferty');
+  if (!commerce.seller.name) missing.push('pełna nazwa sprzedawcy');
+  if (!commerce.seller.address) missing.push('adres sprzedawcy');
+  if (!commerce.seller.taxId) missing.push('NIP sprzedawcy');
+  if (!commerce.seller.email) missing.push('e-mail sprzedawcy');
   const amount = configuredAmount();
   if (!amount) missing.push('P24_AMOUNT_GROSZ');
   const publicPrice = Number(process.env.COMMERCE_PRICE_GROSS_PLN);
@@ -70,14 +74,16 @@ export function getPaymentReadiness(): PaymentReadiness {
 export function getPaymentConfig(): PaymentConfig {
   const readiness = getPaymentReadiness();
   if (!readiness.ready) throw new Error(`Płatności nie są jeszcze skonfigurowane: ${readiness.missing.join(', ')}`);
+  const commerce = getPublicCommerceConfig();
   const merchantId = positiveInt(process.env.P24_MERCHANT_ID)!;
   const posId = positiveInt(process.env.P24_POS_ID)!;
   const amount = configuredAmount()!;
   return {
     merchantId, posId, amount,
     crc: required('P24_CRC')!, apiKey: required('P24_API_KEY')!,
-    currency: 'PLN', offerName: anyRequired('P24_OFFER_NAME', 'COMMERCE_OFFER_NAME')!,
-    sellerName: anyRequired('P24_SELLER_NAME', 'COMMERCE_SELLER_NAME')!, sellerEmail: anyRequired('P24_SELLER_EMAIL', 'COMMERCE_SELLER_EMAIL')!,
+    currency: 'PLN', offerName: anyRequired('P24_OFFER_NAME', 'COMMERCE_OFFER_NAME') || commerce.offer.name,
+    sellerName: anyRequired('P24_SELLER_NAME', 'COMMERCE_SELLER_NAME') || commerce.seller.name,
+    sellerEmail: anyRequired('P24_SELLER_EMAIL', 'COMMERCE_SELLER_EMAIL') || commerce.seller.email,
     returnUrl: required('P24_RETURN_URL')!, statusUrl: required('P24_STATUS_URL')!,
     baseUrl: process.env.P24_ENV === 'sandbox' ? 'https://sandbox.przelewy24.pl/api/v1' : 'https://secure.przelewy24.pl/api/v1',
   };

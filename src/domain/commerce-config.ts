@@ -10,6 +10,7 @@ export type CommerceSeller = {
   name: string;
   address: string;
   taxId: string;
+  regon: string;
   email: string;
 };
 
@@ -23,7 +24,7 @@ export type PublicCommerceConfig = {
 
 export function normalizePublicCommerceConfig(value: unknown): PublicCommerceConfig | null {
   if (!value || typeof value !== 'object') return null;
-  const input = value as { ready?: unknown; missing?: unknown; offer?: { name?: unknown; amount?: unknown; priceGrossPln?: unknown; currency?: unknown; description?: unknown; billingLabel?: unknown; deliveryLabel?: unknown } | null; seller?: { name?: unknown; address?: unknown; taxId?: unknown; email?: unknown } | null; paymentMethods?: unknown };
+  const input = value as { ready?: unknown; missing?: unknown; offer?: { name?: unknown; amount?: unknown; priceGrossPln?: unknown; currency?: unknown; description?: unknown; billingLabel?: unknown; deliveryLabel?: unknown } | null; seller?: { name?: unknown; address?: unknown; taxId?: unknown; regon?: unknown; email?: unknown } | null; paymentMethods?: unknown };
   const amount = typeof input.offer?.amount === 'number' ? input.offer.amount : null;
   const priceGrossPln = typeof input.offer?.priceGrossPln === 'number' ? input.offer.priceGrossPln : null;
   const currency = typeof input.offer?.currency === 'string' ? input.offer.currency : 'PLN';
@@ -41,6 +42,7 @@ export function normalizePublicCommerceConfig(value: unknown): PublicCommerceCon
       name: typeof input.seller?.name === 'string' ? input.seller.name : '',
       address: typeof input.seller?.address === 'string' ? input.seller.address : '',
       taxId: typeof input.seller?.taxId === 'string' ? input.seller.taxId : '',
+      regon: typeof input.seller?.regon === 'string' ? input.seller.regon : '',
       email: typeof input.seller?.email === 'string' ? input.seller.email : '',
     },
     paymentMethods: Array.isArray(input.paymentMethods) ? input.paymentMethods.filter((item): item is string => typeof item === 'string') : ['BLIK', 'karty płatnicze', 'szybkie przelewy'],
@@ -56,10 +58,11 @@ const DEFAULT_OFFER: CommerceOffer = {
 };
 
 const DEFAULT_SELLER: CommerceSeller = {
-  name: '',
-  address: '',
-  taxId: '',
-  email: '',
+  name: 'Multinewsroom Jan Domaniewski',
+  address: 'ul. Barcicka 44, 01-839 Warszawa',
+  taxId: '5252189241',
+  regon: '147154574',
+  email: 'kontakt@kodtalentu.pl',
 };
 
 function env(name: string): string {
@@ -77,10 +80,11 @@ export function getPublicCommerceConfig(): PublicCommerceConfig {
     deliveryLabel: env('COMMERCE_DELIVERY_LABEL') || DEFAULT_OFFER.deliveryLabel,
   };
   const seller: CommerceSeller = {
-    name: env('COMMERCE_SELLER_NAME') || env('P24_SELLER_NAME'),
-    address: env('COMMERCE_SELLER_ADDRESS') || env('P24_SELLER_ADDRESS'),
-    taxId: env('COMMERCE_SELLER_TAX_ID') || env('P24_SELLER_TAX_ID'),
-    email: env('COMMERCE_SELLER_EMAIL') || env('P24_SELLER_EMAIL'),
+    name: env('COMMERCE_SELLER_NAME') || env('P24_SELLER_NAME') || DEFAULT_SELLER.name,
+    address: env('COMMERCE_SELLER_ADDRESS') || env('P24_SELLER_ADDRESS') || DEFAULT_SELLER.address,
+    taxId: env('COMMERCE_SELLER_TAX_ID') || env('P24_SELLER_TAX_ID') || DEFAULT_SELLER.taxId,
+    regon: env('COMMERCE_SELLER_REGON') || DEFAULT_SELLER.regon,
+    email: env('COMMERCE_SELLER_EMAIL') || env('P24_SELLER_EMAIL') || DEFAULT_SELLER.email,
   };
   const missing: string[] = [];
   if (!offer.priceGrossPln || offer.priceGrossPln <= 0) missing.push('cena brutto oferty');

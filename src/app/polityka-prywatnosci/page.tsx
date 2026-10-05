@@ -7,7 +7,7 @@ export default function PrivacyPage() {
     <article className="commerce-legal"><div className="commerce-card">
       <div className="commerce-privacy-callout"><strong>Co zostaje lokalnie?</strong><span>Pliki DOC, RTF, TXT, PDF, JPG i PNG, ich OCR, nazwy, indeks i klucze sejfu.</span><strong>Co może trafić na serwer?</strong><span>Dane konta, techniczne metadane sesji oraz — tylko po świadomym wyborze — zaszyfrowana struktura synchronizacji. Przelewy24 otrzymuje dane potrzebne do obsługi płatności, nie treść dokumentów.</span></div>
       <h2>1. Administrator i zakres</h2>
-      <p>Administratorem danych jest podmiot wskazany w danych sprzedawcy przed uruchomieniem sprzedaży. Zakres i kontakt nie są ukrywane w formularzu: pojawiają się na stronie kontaktu i w regulaminie.</p>
+      <p>Administratorem danych jest {config.seller.name}, {config.seller.address}, NIP {config.seller.taxId}{config.seller.regon ? `, REGON ${config.seller.regon}` : ''}. Kontakt: <a className="commerce-inline-link" href={`mailto:${config.seller.email}`}>{config.seller.email}</a>. Dane administratora są też widoczne na stronie kontaktu i w regulaminie.</p>
       <h2>2. Konto</h2>
       <p>Do konta potrzebujemy minimalnych danych logowania, takich jak imię wyświetlane w aplikacji i adres e-mail. Hasło jest przetwarzane przez bezpieczną warstwę uwierzytelniania. Nie zapisujemy treści sprawy w logach aplikacji.</p>
       <h2>3. Dokumenty i szyfrowanie</h2>

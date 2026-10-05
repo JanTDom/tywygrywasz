@@ -30,7 +30,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="site-footer-bottom">
-        <span>© 2026 TyWygrywasz.pl. Wszelkie prawa zastrzeżone.</span>
+        <span>© 2026 Multinewsroom. Wszelkie prawa zastrzeżone.</span>
         <span>Opłaty obsługuje Przelewy24 po uruchomieniu sprzedaży.</span>
       </div>
     </footer>

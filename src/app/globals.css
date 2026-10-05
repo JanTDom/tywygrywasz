@@ -128,9 +128,14 @@ button, input, select, textarea { font: inherit; }
 .defense-rail-header h2 { max-width: 620px; margin: 8px 0 0; color: #fff; font-size: clamp(17px, 2vw, 25px); line-height: 1.08; font-weight: 790; letter-spacing: -0.035em; text-wrap: balance; }
 .defense-rail-status { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; margin-top: 2px; padding: 7px 10px; color: #bdebd8; background: rgba(185, 231, 211, 0.1); border: 1px solid rgba(185, 231, 211, 0.25); border-radius: 999px; font-size: 9px; font-weight: 760; letter-spacing: 0.05em; white-space: nowrap; }
 .defense-rail-status-dot { width: 7px; height: 7px; background: #65d79d; border-radius: 50%; box-shadow: 0 0 0 4px rgba(101, 215, 157, 0.14); animation: defenseStatusPulse 2.2s ease-in-out infinite; }
-.defense-rail-route { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; margin-top: 19px; padding: 0 4px 2px; }
+.defense-rail-route { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px; margin-top: 31px; padding: 0 4px 2px; }
 .defense-rail-line { position: absolute; top: 18px; right: 5%; left: 5%; height: 2px; background: rgba(170, 214, 215, 0.28); }
 .defense-rail-beam { position: absolute; z-index: 1; top: 17px; left: 5%; width: 20%; height: 4px; background: linear-gradient(90deg, transparent, #9cf1d0 35%, #61d3b8 80%, transparent); border-radius: 99px; filter: drop-shadow(0 0 7px rgba(156, 241, 208, 0.88)); animation: defenseBeam 6.5s ease-in-out infinite; }
+.defense-rail-packet { position: absolute; z-index: 4; top: -30px; left: 5%; display: flex; align-items: center; gap: 5px; width: 72px; min-height: 29px; padding: 0 7px; color: #193643; background: linear-gradient(135deg, #fff6e7 0%, #ffd9c8 100%); border: 1px solid rgba(255, 232, 216, 0.78); border-radius: 9px; box-shadow: 0 7px 16px rgba(1, 14, 22, 0.28), 0 0 0 3px rgba(255, 185, 153, 0.1); transform: translateX(-50%) rotate(-3deg); animation: defensePacket 7.2s cubic-bezier(0.55, 0.05, 0.35, 0.98) infinite; }
+.defense-rail-packet::after { content: ''; position: absolute; right: 50%; bottom: -9px; width: 1px; height: 9px; background: #ffb69e; box-shadow: 0 0 7px rgba(255, 182, 158, 0.8); }
+.defense-rail-packet svg { flex: 0 0 auto; color: #bd604e; }
+.defense-rail-packet span { font-size: 8px; font-weight: 850; letter-spacing: 0.08em; }
+.defense-rail-packet i { width: 5px; height: 5px; margin-left: auto; background: #e0785e; border-radius: 50%; box-shadow: 0 0 0 3px rgba(224, 120, 94, 0.18); }
 .defense-rail-stop { position: relative; z-index: 2; display: flex; align-items: center; gap: 9px; min-width: 0; }
 .defense-rail-icon { display: grid; place-items: center; width: 37px; height: 37px; flex: 0 0 37px; color: #bcebd9; background: #173b4a; border: 1px solid rgba(164, 226, 211, 0.35); border-radius: 50%; box-shadow: 0 0 0 5px rgba(16, 55, 69, 0.8); }
 .defense-rail-stop > span:last-child { display: grid; gap: 3px; min-width: 0; }
@@ -138,12 +143,15 @@ button, input, select, textarea { font: inherit; }
 .defense-rail-stop small { overflow: hidden; color: #8eb1b8; font-size: 10px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .defense-rail-stop-alert .defense-rail-icon { color: #ffd0bd; background: #5a2e35; border-color: rgba(255, 159, 132, 0.58); animation: defenseAlert 3.4s ease-in-out infinite; }
 .defense-rail-stop-alert strong { color: #ffd6c8; }
+.defense-rail-stop-facts .defense-rail-icon { animation: defenseStation 7.2s ease-in-out 1.6s infinite; }
+.defense-rail-stop-deadline .defense-rail-icon { animation: defenseStation 7.2s ease-in-out 3.1s infinite; }
 .defense-rail-stop-action .defense-rail-icon { color: #d7ffe9; background: #156052; border-color: rgba(162, 244, 204, 0.58); animation: defenseAction 3.4s ease-in-out infinite; animation-delay: 1.5s; }
 .defense-rail-foot { position: relative; z-index: 1; margin-top: 14px; color: #9bbcc0; font-size: 10px; line-height: 1.35; }
 .defense-rail-foot span { color: #c8f5df; font-weight: 760; }
-.defense-rail:hover .defense-rail-beam, .defense-rail:focus-within .defense-rail-beam { animation-play-state: paused; }
 @keyframes defenseBeam { 0% { left: 5%; opacity: 0; transform: scaleX(0.35); } 12% { opacity: 1; } 50% { left: 73%; opacity: 1; transform: scaleX(1); } 88% { opacity: 1; } 100% { left: 94%; opacity: 0; transform: scaleX(0.4); } }
+@keyframes defensePacket { 0%, 4% { left: 6%; opacity: 0; transform: translateX(-50%) rotate(-7deg) scale(0.82); } 9% { opacity: 1; transform: translateX(-50%) rotate(-3deg) scale(1); } 22% { left: 6%; } 35% { left: 30%; } 48% { left: 30%; } 61% { left: 54%; } 74% { left: 54%; } 84% { left: 78%; opacity: 1; transform: translateX(-50%) rotate(3deg) scale(1); } 92% { left: 78%; opacity: 1; } 100% { left: 97%; opacity: 0; transform: translateX(-50%) rotate(7deg) scale(0.78); } }
 @keyframes defenseAlert { 0%, 82%, 100% { transform: scale(1); } 87% { transform: scale(1.08) rotate(-3deg); } 91% { transform: scale(0.98) rotate(2deg); } }
+@keyframes defenseStation { 0%, 62%, 100% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 55, 69, 0.8); } 68% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(84, 205, 174, 0.27), 0 0 22px rgba(84, 205, 174, 0.35); } 76% { transform: scale(1); box-shadow: 0 0 0 5px rgba(16, 55, 69, 0.8); } }
 @keyframes defenseAction { 0%, 65%, 100% { transform: scale(1); } 76% { transform: scale(1.1); } 84% { transform: scale(1); } }
 @keyframes defenseStatusPulse { 0%, 100% { opacity: 0.65; } 50% { opacity: 1; } }
 .page-title, .photo-landing-copy h2, .photo-journey-copy h2, .value-bridge-head h2 { text-wrap: balance; }
@@ -173,7 +181,7 @@ button, input, select, textarea { font: inherit; }
   .app-content { padding: 22px 16px 94px; }
   .defense-rail { margin: -22px -16px 0; padding: 15px 16px 14px; }
   .defense-rail-header { min-width: 690px; }
-  .defense-rail-route { min-width: 690px; gap: 16px; margin-top: 16px; }
+.defense-rail-route { min-width: 690px; gap: 16px; margin-top: 28px; }
   .defense-rail-foot { min-width: 690px; }
   .surface { border-radius: 15px; }
 

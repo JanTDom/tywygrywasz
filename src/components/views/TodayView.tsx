@@ -87,15 +87,16 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
         <div className="defense-rail-route" role="img" aria-label="Animacja procesu: urząd wysyła pismo, TyWygrywasz porządkuje fakty i instytucję, pilnuje terminu, a Ty wykonujesz kolejny ruch">
           <div className="defense-rail-line" aria-hidden="true" />
           <div className="defense-rail-beam" aria-hidden="true" />
+          <div className="defense-rail-packet" aria-hidden="true"><FilePlus2 size={13} /><span>PISMO</span><i /></div>
           <div className="defense-rail-stop defense-rail-stop-alert">
             <span className="defense-rail-icon"><Building2 size={17} /></span>
             <span><strong>URZĄD WYSYŁA PISMO</strong><small>decyzja / wezwanie</small></span>
           </div>
-          <div className="defense-rail-stop">
+          <div className="defense-rail-stop defense-rail-stop-facts">
             <span className="defense-rail-icon"><FilePlus2 size={17} /></span>
             <span><strong>ODCZYTUJESZ FAKTY</strong><small>co naprawdę napisano</small></span>
           </div>
-          <div className="defense-rail-stop">
+          <div className="defense-rail-stop defense-rail-stop-deadline">
             <span className="defense-rail-icon"><CalendarClock size={17} /></span>
             <span><strong>PILNUJESZ TERMINU</strong><small>ile masz czasu</small></span>
           </div>

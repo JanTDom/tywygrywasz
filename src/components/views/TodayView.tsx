@@ -116,6 +116,47 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
             </figure>
           </section>
 
+          <section className="product-motion" aria-labelledby="product-motion-title">
+            <div className="product-motion-copy">
+              <div className="panel-kicker product-motion-kicker"><Sparkles size={16} /> JAK TO DZIAŁA?</div>
+              <h2 id="product-motion-title">Od dokumentu do następnego kroku.</h2>
+              <p>TyWygrywasz nie kończy się na odpowiedzi. Układa Twoje materiały w sprawę, pilnuje terminów i pokazuje, co warto zrobić teraz.</p>
+              <ol className="product-motion-steps">
+                <li><span>01</span><div><strong>Dodajesz dokument</strong><small>PDF, DOC, RTF, TXT, JPG lub PNG</small></div></li>
+                <li><span>02</span><div><strong>Sejf buduje kontekst</strong><small>Dokumenty, instytucje i terminy łączą się w całość</small></div></li>
+                <li><span>03</span><div><strong>Widzisz następne działanie</strong><small>Ty zatwierdzasz informacje i decydujesz o ruchu</small></div></li>
+              </ol>
+              <div className="product-motion-note"><LockKeyhole size={14} /> Przykład działania · dane demonstracyjne, bez wysyłania plików</div>
+            </div>
+            <div className="product-motion-stage" role="img" aria-label="Animacja: dokument trafia do lokalnego szyfrowanego sejfu, a następnie tworzy plan działania sprawy">
+              <div className="motion-stage-grid" />
+              <div className="motion-orbit motion-orbit-one" />
+              <div className="motion-orbit motion-orbit-two" />
+              <div className="motion-connector motion-connector-one" />
+              <div className="motion-connector motion-connector-two" />
+              <div className="motion-document-card">
+                <div className="motion-document-top"><FilePlus2 size={16} /><span>NOWY PLIK</span><span className="motion-status-dot" /></div>
+                <strong>decyzja.pdf</strong>
+                <div className="motion-document-lines"><i /><i /><i /></div>
+                <small>Odczyt lokalny</small>
+              </div>
+              <div className="motion-vault-card">
+                <div className="motion-vault-glow" />
+                <div className="motion-vault-mark"><LockKeyhole size={21} /></div>
+                <strong>LOKALNY SEJF</strong>
+                <span>AES-GCM · 256 bit</span>
+                <div className="motion-vault-check"><CheckCircle2 size={13} /> dane pod Twoją kontrolą</div>
+              </div>
+              <div className="motion-case-card">
+                <div className="motion-case-head"><span>SPRAWA S-0001</span><CalendarClock size={15} /></div>
+                <strong>Plan działania</strong>
+                <div className="motion-case-tags"><span>Urząd</span><span>Termin 14 dni</span></div>
+                <div className="motion-case-next"><ArrowRight size={14} /> następny krok gotowy</div>
+              </div>
+              <div className="motion-stage-caption"><span className="motion-caption-pulse" /> DOKUMENT <b>→</b> KONTEKST <b>→</b> DZIAŁANIE</div>
+            </div>
+          </section>
+
           <section className="photo-journey" aria-labelledby="photo-journey-title">
             <figure className="photo-journey-main">
               <picture>

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
+  Building2,
   CalendarClock,
   CheckCircle2,
   ChevronRight,
@@ -75,22 +76,35 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
 
   return (
     <div className="space-y-7">
-      <section className="purpose-ticker" aria-label="Do czego służy TyWygrywasz">
-        <div className="purpose-ticker-label"><Sparkles size={14} /> PO CO JEST TYWYGRYWASZ?</div>
-        <div className="purpose-ticker-copy">
-          <strong>Porządkujesz dokumenty, łączysz wiele instytucji i widzisz następny krok.</strong>
-          <div className="purpose-ticker-window" aria-label="TyWygrywasz zachowuje kontekst całej sprawy i chroni Twoje dokumenty">
-            <div className="purpose-ticker-track">
-              <span>Materiały zostają na urządzeniu.</span><b aria-hidden="true">✦</b>
-              <span>Terminy nie giną w rozmowie.</span><b aria-hidden="true">✦</b>
-              <span>Każda instytucja ma swoje miejsce.</span><b aria-hidden="true">✦</b>
-              <span aria-hidden="true">Materiały zostają na urządzeniu.</span><b aria-hidden="true">✦</b>
-              <span aria-hidden="true">Terminy nie giną w rozmowie.</span><b aria-hidden="true">✦</b>
-              <span aria-hidden="true">Każda instytucja ma swoje miejsce.</span>
-            </div>
+      <section className="defense-rail" aria-labelledby="defense-rail-title">
+        <div className="defense-rail-header">
+          <div>
+            <div className="defense-rail-kicker"><Sparkles size={14} /> KIEDY PRZYCHODZI PISMO Z URZĘDU</div>
+            <h2 id="defense-rail-title">Nie odpowiadasz w ciemno. Widzisz kolejny ruch.</h2>
+          </div>
+          <div className="defense-rail-status"><span className="defense-rail-status-dot" /> PLAN SPRAWY AKTYWNY</div>
+        </div>
+        <div className="defense-rail-route" role="img" aria-label="Animacja procesu: urząd wysyła pismo, TyWygrywasz porządkuje fakty i instytucję, pilnuje terminu, a Ty wykonujesz kolejny ruch">
+          <div className="defense-rail-line" aria-hidden="true" />
+          <div className="defense-rail-beam" aria-hidden="true" />
+          <div className="defense-rail-stop defense-rail-stop-alert">
+            <span className="defense-rail-icon"><Building2 size={17} /></span>
+            <span><strong>URZĄD WYSYŁA PISMO</strong><small>decyzja / wezwanie</small></span>
+          </div>
+          <div className="defense-rail-stop">
+            <span className="defense-rail-icon"><FilePlus2 size={17} /></span>
+            <span><strong>ODCZYTUJESZ FAKTY</strong><small>co naprawdę napisano</small></span>
+          </div>
+          <div className="defense-rail-stop">
+            <span className="defense-rail-icon"><CalendarClock size={17} /></span>
+            <span><strong>PILNUJESZ TERMINU</strong><small>ile masz czasu</small></span>
+          </div>
+          <div className="defense-rail-stop defense-rail-stop-action">
+            <span className="defense-rail-icon"><CheckCircle2 size={17} /></span>
+            <span><strong>WYKONUJESZ RUCH</strong><small>odpowiedź / odwołanie</small></span>
           </div>
         </div>
-        <button type="button" className="purpose-ticker-privacy" onClick={() => onNavigate('privacy')}><LockKeyhole size={14} /> Lokalnie i szyfrowane <ArrowRight size={13} /></button>
+        <div className="defense-rail-foot"><span>TyWygrywasz</span> łączy dokumenty, wiele instytucji i terminy w jeden plan. Dane zostają lokalnie i są szyfrowane.</div>
       </section>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -123,47 +137,6 @@ export function TodayView({ cases, deadlines, inboxCount, onNavigate, onConfirmD
               </picture>
               <figcaption>Wsparcie zaczyna się od uporządkowanych faktów.</figcaption>
             </figure>
-          </section>
-
-          <section className="product-motion" aria-labelledby="product-motion-title">
-            <div className="product-motion-copy">
-              <div className="panel-kicker product-motion-kicker"><Sparkles size={16} /> JAK TO DZIAŁA?</div>
-              <h2 id="product-motion-title">Od dokumentu do następnego kroku.</h2>
-              <p>TyWygrywasz nie kończy się na odpowiedzi. Układa Twoje materiały w sprawę, pilnuje terminów i pokazuje, co warto zrobić teraz.</p>
-              <ol className="product-motion-steps">
-                <li><span>01</span><div><strong>Dodajesz dokument</strong><small>PDF, DOC, RTF, TXT, JPG lub PNG</small></div></li>
-                <li><span>02</span><div><strong>Sejf buduje kontekst</strong><small>Dokumenty, instytucje i terminy łączą się w całość</small></div></li>
-                <li><span>03</span><div><strong>Widzisz następne działanie</strong><small>Ty zatwierdzasz informacje i decydujesz o ruchu</small></div></li>
-              </ol>
-              <div className="product-motion-note"><LockKeyhole size={14} /> Przykład działania · dane demonstracyjne, bez wysyłania plików</div>
-            </div>
-            <div className="product-motion-stage" role="img" aria-label="Animacja: dokument trafia do lokalnego szyfrowanego sejfu, a następnie tworzy plan działania sprawy">
-              <div className="motion-stage-grid" />
-              <div className="motion-orbit motion-orbit-one" />
-              <div className="motion-orbit motion-orbit-two" />
-              <div className="motion-connector motion-connector-one" />
-              <div className="motion-connector motion-connector-two" />
-              <div className="motion-document-card">
-                <div className="motion-document-top"><FilePlus2 size={16} /><span>NOWY PLIK</span><span className="motion-status-dot" /></div>
-                <strong>decyzja.pdf</strong>
-                <div className="motion-document-lines"><i /><i /><i /></div>
-                <small>Odczyt lokalny</small>
-              </div>
-              <div className="motion-vault-card">
-                <div className="motion-vault-glow" />
-                <div className="motion-vault-mark"><LockKeyhole size={21} /></div>
-                <strong>LOKALNY SEJF</strong>
-                <span>AES-GCM · 256 bit</span>
-                <div className="motion-vault-check"><CheckCircle2 size={13} /> dane pod Twoją kontrolą</div>
-              </div>
-              <div className="motion-case-card">
-                <div className="motion-case-head"><span>SPRAWA S-0001</span><CalendarClock size={15} /></div>
-                <strong>Plan działania</strong>
-                <div className="motion-case-tags"><span>Urząd</span><span>Termin 14 dni</span></div>
-                <div className="motion-case-next"><ArrowRight size={14} /> następny krok gotowy</div>
-              </div>
-              <div className="motion-stage-caption"><span className="motion-caption-pulse" /> DOKUMENT <b>→</b> KONTEKST <b>→</b> DZIAŁANIE</div>
-            </div>
           </section>
 
           <section className="photo-journey" aria-labelledby="photo-journey-title">

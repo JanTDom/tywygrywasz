@@ -51,6 +51,7 @@ import { E2EESyncEngine } from '../domain/sync-engine';
 import { EncryptedBrowserDocumentStorage, requestPersistentBrowserStorage } from '../domain/browser-storage';
 import { computeSha256 } from '../domain/crypto';
 import { createVaultAccess, encodeRecoveryKey, unlockVaultAccess } from '../domain/vault-access';
+import { SiteFooter } from '../components/SiteFooter';
 
 const VAULT_ENVELOPE_PREFIX = 'tywygrywasz-key-envelope-';
 const LEGACY_VAULT_KEY_PREFIX = 'tywygrywasz-vault-key-';
@@ -1065,6 +1066,7 @@ export default function TyWygrywaszApp() {
           />
         )}
         </main>
+        <SiteFooter />
       </div>
 
       {isAccountOpen && (

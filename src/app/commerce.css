@@ -74,6 +74,9 @@
 .site-footer-column h2 { color:#fff; font-size:12px; letter-spacing:.12em; text-transform:uppercase; margin:3px 0 8px; }
 .site-footer-column a { color:#a9c0c7; font-size:13px; text-decoration:none; display:flex; align-items:center; gap:6px; }
 .site-footer-column a:hover { color:#c8f0df; }
+.site-footer-company { display:grid; gap:5px; margin-top:9px; color:#a9c0c7; font-size:12px; line-height:1.5; }
+.site-footer-company strong { color:#d9e8eb; font-weight:600; }
+.site-footer-company span { white-space:nowrap; }
 .site-footer-note { padding:16px; border:1px solid rgba(200,240,223,.17); border-radius:14px; color:#9de2ca; background:rgba(255,255,255,.04); }
 .site-footer-note p { margin:10px 0 0; }
 .site-footer-bottom { max-width:1120px; margin:0 auto; padding:17px 24px 23px; border-top:1px solid rgba(200,240,223,.14); display:flex; justify-content:space-between; gap:15px; color:#82a1aa; font-size:11px; }

@@ -57,7 +57,7 @@ const DEFAULT_OFFER: CommerceOffer = {
   deliveryLabel: 'Aktywacja po potwierdzeniu płatności',
 };
 
-const DEFAULT_SELLER: CommerceSeller = {
+export const DEFAULT_SELLER: CommerceSeller = {
   name: 'Multinewsroom Jan Domaniewski',
   address: 'ul. Barcicka 44, 01-839 Warszawa',
   taxId: '5252189241',

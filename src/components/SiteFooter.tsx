@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { DEFAULT_SELLER, type CommerceSeller } from '@/domain/commerce-config';
 
-export function SiteFooter() {
+export function SiteFooter({ seller = DEFAULT_SELLER }: { seller?: CommerceSeller } = {}) {
   return (
     <footer className="site-footer" aria-label="Stopka serwisu">
       <div className="site-footer-inner">
@@ -19,10 +20,16 @@ export function SiteFooter() {
           <Link href="/">Strona główna</Link>
         </div>
         <div className="site-footer-column">
-          <h2>Informacje</h2>
+          <h2>Prawne i kontakt</h2>
           <Link href="/regulamin">Regulamin</Link>
           <Link href="/polityka-prywatnosci">Polityka prywatności</Link>
-          <Link href="/kontakt"><Mail size={14} /> Kontakt i reklamacje</Link>
+          <Link href="/kontakt">Dane kontaktowe</Link>
+          <a href={`mailto:${seller.email}`}><Mail size={14} /> {seller.email}</a>
+          <div className="site-footer-company">
+            <strong>{seller.name}</strong>
+            <span>NIP: {seller.taxId}</span>
+            <span>REGON: {seller.regon}</span>
+          </div>
         </div>
         <div className="site-footer-note">
           <ShieldCheck size={19} />

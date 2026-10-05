@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SiteFooter } from './SiteFooter';
+import { getPublicCommerceConfig } from '@/domain/commerce-config';
 
 export function CommerceLayout({ children, eyebrow, title, lead }: { children: ReactNode; eyebrow?: string; title?: string; lead?: string }) {
   return (
@@ -22,7 +23,7 @@ export function CommerceLayout({ children, eyebrow, title, lead }: { children: R
         </div>}
         {children}
       </main>
-      <SiteFooter />
+      <SiteFooter seller={getPublicCommerceConfig().seller} />
     </div>
   );
 }

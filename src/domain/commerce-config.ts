@@ -59,7 +59,7 @@ const DEFAULT_OFFER: CommerceOffer = {
 
 export const DEFAULT_SELLER: CommerceSeller = {
   name: 'Multinewsroom Jan Domaniewski',
-  address: 'ul. Barcicka 44, 01-839 Warszawa',
+  address: 'ul. Barcickiej 44, 01-839 Warszawa',
   taxId: '5252189241',
   regon: '147154574',
   email: 'kontakt@tywygrywasz.pl',

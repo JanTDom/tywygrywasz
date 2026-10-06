@@ -2,15 +2,12 @@
 
 import React, { useState } from 'react';
 import {
-  Inbox,
   Sparkles,
   ArrowRight,
   RotateCcw,
   CheckCircle2,
   HelpCircle,
-  FolderOpen,
   FileText,
-  AlertCircle,
   Check,
 } from 'lucide-react';
 import { DocumentRecord, InboxProposal, Case, CaseSubfolder } from '../../domain/types';

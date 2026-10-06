@@ -1,0 +1,20 @@
+# Local vault files and agent configuration never enter the deployment upload.
+Moje_sprawy/
+.agents/
+.codex/
+.aws/
+.env*
+.git/
+.vercel/
+.next/
+node_modules/
+output/
+test-results/
+playwright-report/
+*.tsbuildinfo
+supabase/.temp/
+
+# Recreated from locked dependencies by prebuild on Vercel.
+public/ocr/
+public/pdf/
+**/.DS_Store

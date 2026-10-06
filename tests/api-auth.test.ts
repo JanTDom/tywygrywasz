@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { clearAuthStoreForTests } from '../src/domain/auth-store';
 import { GET as csrfGet } from '../src/app/api/auth/csrf/route';
@@ -6,6 +6,7 @@ import { POST as registerPost } from '../src/app/api/auth/register/route';
 import { POST as loginPost } from '../src/app/api/auth/login/route';
 import { POST as logoutPost } from '../src/app/api/auth/logout/route';
 import { GET as meGet, PATCH as mePatch } from '../src/app/api/auth/me/route';
+import { GET as capabilitiesGet } from '../src/app/api/auth/capabilities/route';
 
 function cookieValue(setCookie: string | null, name: string): string {
   const match = setCookie?.match(new RegExp(`${name}=([^;]+)`));
@@ -21,6 +22,7 @@ async function csrfToken() {
 
 describe('API auth (session cookie + CSRF)', () => {
   beforeEach(() => clearAuthStoreForTests());
+  afterEach(() => vi.unstubAllEnvs());
 
   it('rejestruje konto i zwraca HttpOnly cookie sesji bez hasła', async () => {
     const csrf = await csrfToken();
@@ -34,8 +36,19 @@ describe('API auth (session cookie + CSRF)', () => {
     const data = await response.json();
     expect(data.user.email).toBe('anna@example.test');
     expect(data.user.passwordHash).toBeUndefined();
+    expect(data.user.emailVerified).toBe(false);
+    expect(data.emailCodesAvailable).toBe(false);
     expect(response.headers.get('set-cookie')).toContain('HttpOnly');
     expect(response.headers.get('set-cookie')).toContain('SameSite=lax');
+  });
+
+  it('pokazuje wyłącznie dostępność poczty; brak transportu nie udaje weryfikacji ani nie blokuje utworzenia konta', async () => {
+    vi.stubEnv('AUTH_EMAIL_TRANSPORT', 'disabled');
+    const unavailable = await capabilitiesGet();
+    expect(await unavailable.json()).toEqual({ emailCodesAvailable: false });
+    expect(unavailable.headers.get('cache-control')).toBe('no-store');
+    vi.stubEnv('AUTH_EMAIL_TRANSPORT', 'memory');
+    expect(await (await capabilitiesGet()).json()).toEqual({ emailCodesAvailable: true });
   });
 
   it('odrzuca brak CSRF i logowanie błędnym hasłem', async () => {

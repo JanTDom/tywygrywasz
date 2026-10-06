@@ -54,11 +54,13 @@ describe('Legal Knowledge Dossier & Citizen Letter Engine', () => {
       factualBasis: 'Brak wszechstronnego wyjaśnienia stanu faktycznego (art. 7 i 77 § 1 KPA).',
       legalJustification:
         'Organ pierwszej instancji bezpodstawnie uznał, że projekt budowlany zawiera braki formalne, pomimo złożenia wymaganych uzupełnień w zakreślonym terminie.',
+      draftingNotes: '  To wskazówka robocza: przed wysłaniem sprawdź datę doręczenia.  ',
       attachments: [{ id: 'att-1', title: 'Kopia decyzji Prezydenta m.st. Warszawy', included: true }],
     });
 
     expect(letter.status).toBe('draft');
     expect(letter.checklist.length).toBe(6);
+    expect(letter.draftingNotes).toBe('To wskazówka robocza: przed wysłaniem sprawdź datę doręczenia.');
 
     // Format plain text
     const text = formatLetterPlainText(letter);
@@ -67,6 +69,7 @@ describe('Legal Knowledge Dossier & Citizen Letter Engine', () => {
     expect(text).toContain('Samorządowe Kolegium Odwoławcze w Warszawie');
     expect(text).toContain('WAB.6740.1.2026.JK');
     expect(text).toContain('własnoręczny podpis');
+    expect(text).not.toContain('To wskazówka robocza');
 
     // Zero emoji check
     const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/u;

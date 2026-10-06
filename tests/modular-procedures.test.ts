@@ -7,7 +7,6 @@ import { describe, it, expect } from 'vitest';
 import { LocalVault } from '../src/domain/vault';
 import { calculateKpaDeadline } from '../src/domain/deadlines';
 import { createModularLetterDraft, exportLetterForPrinting } from '../src/domain/letter-engine';
-import { buildCompleteCaseAnalysis } from '../src/domain/case-analysis';
 import { SYNTHETIC_DATASET } from '../src/domain/synthetic-data';
 
 describe('Modular Procedures & Synthetic Datasets', () => {
@@ -25,7 +24,7 @@ describe('Modular Procedures & Synthetic Datasets', () => {
     });
 
     const fileDef = SYNTHETIC_DATASET.find((f) => f.fileName.includes('decyzja_prezydenta'));
-    const { document, initialVersion } = await vault.importDocument({
+    const { document } = await vault.importDocument({
       caseId: adminCase.id,
       type: 'decision',
       direction: 'incoming',

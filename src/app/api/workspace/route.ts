@@ -29,7 +29,7 @@ function managerForUser(userId: string): LocalDiskManager {
 }
 
 export async function GET(req: NextRequest) {
-  if (process.env.VERCEL === '1') return localOnlyResponse();
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') return localOnlyResponse();
   const user = await userFromRequest(req);
   if (!user) return jsonError('Wymagane zalogowanie do lokalnego mostu plików.', 401);
   try {
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (process.env.VERCEL === '1') return localOnlyResponse();
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') return localOnlyResponse();
   const user = await userFromRequest(req);
   if (!user) return jsonError('Wymagane zalogowanie do lokalnego mostu plików.', 401);
   if (!csrfIsValid(req)) return jsonError('Nieprawidłowy token formularza.', 403);

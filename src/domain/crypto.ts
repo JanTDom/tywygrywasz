@@ -310,14 +310,6 @@ export async function unwrapVaultKey(
   }
 }
 
-async function encryptWithKey(plaintextJson: string, vaultKey: Uint8Array): Promise<{
-  ivHex: string;
-  ciphertextHex: string;
-  manifestSha256?: string;
-}> {
-  return encryptWithKeyOptions(plaintextJson, vaultKey, true);
-}
-
 async function encryptWithKeyOptions(plaintextJson: string, vaultKey: Uint8Array, includeManifestSha256: boolean): Promise<{
   ivHex: string;
   ciphertextHex: string;
@@ -408,6 +400,8 @@ export async function decryptVault(container: EncryptedContainer, passphrase: st
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes('Naruszenie integralności')) throw err;
     if (err instanceof Error && err.message.includes('Nieprawidłowy rozmiar')) throw err;
+    // Przyczynę błędu pomijamy celowo: nie ujawniamy szczegółów odszyfrowania.
+    // eslint-disable-next-line preserve-caught-error
     throw new Error('Błąd odszyfrowania: nieprawidłowe hasło lub uszkodzony szyfrogram.');
   }
 }

@@ -1,14 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { LocalDocumentError, LocalOcrEngine, extractPdfText, parseRtf } from '../src/domain/ocr-engine';
+import { multiPagePdfFixture } from './fixtures/pdf-fixture';
+import { extractFieldsFromText } from '../src/domain/extractor';
 
 describe('Local document parser', () => {
   it('decodes common RTF controls and Polish Unicode escapes', () => {
     expect(parseRtf('{\\rtf1\\ansi Pierwsza\\par Druga: \\u321?}')).toContain('Pierwsza\nDruga: Ł');
   });
 
-  it('extracts a text layer from a simple local PDF stream', () => {
-    const pdf = new TextEncoder().encode('%PDF-1.7\nBT (Decyzja 123/2026) Tj ET\n%%EOF');
-    expect(extractPdfText(pdf)).toContain('Decyzja 123/2026');
+  it('decompresses valid PDF streams without importing invisible metadata as evidence', async () => {
+    const text = await extractPdfText(multiPagePdfFixture());
+    expect(text).toContain('Pierwsza strona dowodu');
+    expect(text).toContain('WAB.6740.12.2026');
+    expect(text).not.toContain('Invisible metadata');
+  });
+
+  it('retains real pages and bounds for extracted critical fields on a rotated page', async () => {
+    const result = await new LocalOcrEngine().processDocument({ fileName: 'dowod.pdf', mimeType: 'application/pdf', rawPayload: multiPagePdfFixture() });
+    expect(result.pageCount).toBe(2);
+    expect(result.extractionMethod).toBe('pdf-text');
+    expect(result.lines[0].pageNumber).toBe(1);
+    const fields = extractFieldsFromText({ documentId: 'doc-fixture', versionId: 'ver-fixture', text: result.fullText, sourceLines: result.lines }).fields;
+    const signature = fields.find((field) => field.fieldName === 'case_signature')!;
+    expect(signature.pageNumber).toBe(2);
+    expect(signature.sourceBounds?.width).toBeGreaterThan(0);
+    expect(signature.sourceBounds?.height).toBeGreaterThan(0);
+    expect(signature.sourceBounds?.x).toBeGreaterThanOrEqual(0);
+    expect(signature.sourceBounds?.y).toBeGreaterThanOrEqual(0);
+    expect(fields.find((field) => field.fieldName === 'delivery_date')).toMatchObject({ status: 'unknown', pageNumber: 0 });
+  });
+
+  it('rejects malformed PDF bytes instead of treating strings outside a page as evidence', async () => {
+    await expect(new LocalOcrEngine().processDocument({ fileName: 'bad.pdf', rawPayload: new TextEncoder().encode('%PDF-1.7\nBT (Fake date 2026-01-01) Tj ET') })).rejects.toMatchObject({ code: 'MALFORMED_DOCUMENT' });
   });
 
   it('fails closed for legacy binary DOC content', async () => {

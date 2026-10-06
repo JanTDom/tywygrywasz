@@ -1,24 +1,20 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  HardDrive,
   RefreshCw,
-  Folder,
   FolderOpen,
   FileText,
   FileCode,
   ShieldCheck,
   Split,
   Eye,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  ExternalLink,
   Upload,
+  X,
 } from 'lucide-react';
 import { DocumentRecord, DocumentVersion, DiskFileInfo, Case, ExtractedField } from '../../domain/types';
 import { SideBySideViewer } from '../document/SideBySideViewer';
+import { OriginalDocumentPreview } from '../document/OriginalDocumentPreview';
 
 interface DiskDocumentsViewProps {
   cases: Case[];
@@ -28,11 +24,14 @@ interface DiskDocumentsViewProps {
   diskFiles: DiskFileInfo[];
   extractedFields?: ExtractedField[];
   onScanDisk: () => Promise<void>;
-  onImportFiles: (files: FileList | File[]) => Promise<void>;
-  onSplitMultiPageScan: (docId: string) => Promise<void>;
+  onImportFiles: (files: FileList | File[], contextNote?: string) => Promise<void>;
+  onUpdateDocumentContext?: (documentId: string, contextNote: string) => Promise<void>;
+  onSplitMultiPageScan: (docId: string, ranges: Array<{ from: number; to: number; title: string }>) => Promise<void>;
   onRunLocalOcr?: (docId: string) => Promise<void>;
   onSaveCorrection?: (docId: string, text: string, note: string) => Promise<void>;
   onConfirmField?: (fieldId: string, val: string) => void;
+  onLoadOriginal?: (documentId: string) => Promise<Uint8Array | null>;
+  onRelinkOriginal?: (documentId: string, file: File) => Promise<void>;
   isScanning: boolean;
 }
 
@@ -41,20 +40,38 @@ export function DiskDocumentsView({
   activeCaseId,
   documents,
   versions,
-  diskFiles,
+  diskFiles: _diskFiles,
   extractedFields = [],
   onScanDisk,
   onImportFiles,
+  onUpdateDocumentContext,
   onSplitMultiPageScan,
   onRunLocalOcr,
   onSaveCorrection,
   onConfirmField,
+  onLoadOriginal,
+  onRelinkOriginal,
   isScanning,
 }: DiskDocumentsViewProps) {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [filterCaseId, setFilterCaseId] = useState<string>(activeCaseId || 'all');
   const [isSideBySideOpen, setIsSideBySideOpen] = useState(false);
   const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [contextNote, setContextNote] = useState('');
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [isContextEditing, setIsContextEditing] = useState(false);
+  const [contextDraft, setContextDraft] = useState('');
+  const [isSavingContext, setIsSavingContext] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [relinkError, setRelinkError] = useState('');
+  const [isRelinking, setIsRelinking] = useState(false);
+  const [previewRefresh, setPreviewRefresh] = useState(0);
+  const [splitRanges, setSplitRanges] = useState([{ from: 1, to: 1, title: 'Dokument 1' }]);
+  const [isSplitting, setIsSplitting] = useState(false);
+  const [splitError, setSplitError] = useState('');
+  useEffect(() => { setSplitRanges([{ from: 1, to: 1, title: 'Dokument 1' }]); setSplitError(''); }, [selectedDocId]);
 
   const filteredDocuments = documents.filter((d) => {
     if (filterCaseId === 'all') return true;
@@ -65,38 +82,26 @@ export function DiskDocumentsView({
   const selectedVersions = versions.filter((v) => v.documentId === selectedDocId);
   const activeVersion = selectedVersions.find((v) => v.id === selectedDoc?.activeVersionId);
 
-  // Group documents by subfolder
-  const subfolders = [
-    '00_Plan_i_opis',
-    '01_Otrzymane',
-    '02_Wyslane',
-    '03_Dowody',
-    '04_Potwierdzenia',
-    '05_Projekty_pism',
-    '06_Prawo_i_analizy',
-    '07_Wynik_sprawy',
-    'Do_uporzadkowania',
-  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-5">
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Dokumenty na dysku
           </h1>
           <p className="text-sm text-slate-600 mt-1">
             W wersji webowej pliki trafiają do zaszyfrowanego magazynu przeglądarki na tym urządzeniu — nie do naszej chmury.
             W lokalnym trybie możesz pracować z katalogiem <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-xs text-slate-800">Moje_sprawy/</code>.
-            OCR i ekstrakcja działają lokalnie.
+            Tekst PDF oraz polski OCR zdjęć i skanów odczytujemy lokalnie za pomocą dołączonych silników.
           </p>
           <p className="text-xs text-slate-500 mt-2">Obsługiwane formaty: DOC, RTF, TXT, PDF, JPG, JPEG i PNG.</p>
         </div>
 
-      <div className="flex items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 whitespace-nowrap">
           <label className="inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors shadow-sm cursor-pointer">
-            <input type="file" multiple accept=".doc,.rtf,.txt,.pdf,.jpg,.jpeg,.png" className="sr-only" onChange={(event) => { if (event.target.files) { void onImportFiles(event.target.files); event.currentTarget.value = ''; } }} />
+            <input type="file" multiple accept=".doc,.rtf,.txt,.pdf,.jpg,.jpeg,.png" className="sr-only" onChange={(event) => { if (event.target.files?.length) { setPendingFiles(Array.from(event.target.files)); setContextNote(''); setImportError(''); setIsImportDialogOpen(true); event.currentTarget.value = ''; } }} />
             <Upload className="w-3.5 h-3.5" />
             <span>Dodaj pliki z dysku</span>
           </label>
@@ -162,12 +167,12 @@ export function DiskDocumentsView({
             <div className="divide-y divide-slate-100">
               {filteredDocuments.map((doc) => {
                 const isSelected = selectedDocId === doc.id;
-                const isMultiPage = doc.originalFileName.includes('wielostronicowy');
+                const isMultiPage = versions.some((version) => version.documentId === doc.id && (version.pageCount || 0) > 1);
 
                 return (
                   <div
                     key={doc.id}
-                    onClick={() => setSelectedDocId(doc.id)}
+                    onClick={() => { setSelectedDocId(doc.id); setIsContextEditing(false); setRelinkError(''); }}
                     className={`p-4 cursor-pointer transition-colors ${
                       isSelected ? 'bg-slate-100/80 border-l-4 border-slate-900' : 'hover:bg-slate-50'
                     }`}
@@ -250,7 +255,7 @@ export function DiskDocumentsView({
                 </div>
                 <div className="flex items-center gap-1 text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 font-semibold">
                   <ShieldCheck className="w-3 h-3" />
-                  <span>SHA-256 zgodny</span>
+                  <span>Hash oryginału zapisany</span>
                 </div>
               </div>
 
@@ -275,6 +280,79 @@ export function DiskDocumentsView({
                 </div>
               </div>
 
+              <OriginalDocumentPreview key={`${selectedDoc.id}-${previewRefresh}`} document={selectedDoc} onLoadOriginal={onLoadOriginal} />
+              {onRelinkOriginal && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
+                <p className="mb-2 text-slate-600">Brakuje oryginału albo plik został przeniesiony? Wskaż go ponownie. Zapis nastąpi wyłącznie po zgodności SHA-256 i rozmiaru.</p>
+                <label className={`inline-flex cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-700 ${isRelinking ? 'opacity-50' : ''}`}>
+                  <input type="file" className="sr-only" disabled={isRelinking} onChange={async (event) => {
+                    const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; if (!file) return;
+                    setIsRelinking(true); setRelinkError('');
+                    try { await onRelinkOriginal(selectedDoc.id, file); setPreviewRefresh((value) => value + 1); }
+                    catch (error) { setRelinkError(error instanceof Error ? error.message : 'Nie udało się powiązać pliku.'); }
+                    finally { setIsRelinking(false); }
+                  }} />
+                  {isRelinking ? 'Weryfikowanie…' : 'Wskaż ponownie oryginał'}
+                </label>
+                {relinkError && <p role="alert" className="mt-2 text-rose-700">{relinkError}</p>}
+              </div>}
+
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[11px] font-semibold text-indigo-950 uppercase tracking-wider">
+                      Kontekst od Ciebie
+                    </span>
+                    {selectedDoc.contextNote ? (
+                      <p className="mt-1 text-xs leading-relaxed text-indigo-950 whitespace-pre-wrap">{selectedDoc.contextNote}</p>
+                    ) : (
+                      <p className="mt-1 text-[11px] leading-relaxed text-indigo-800">
+                        Dodaj krótką notatkę, która pomoże Ci rozpoznać dokument. To prywatna, niepotwierdzona informacja — nie jest dowodem.
+                      </p>
+                    )}
+                  </div>
+                  {onUpdateDocumentContext && !isContextEditing && (
+                    <button type="button" onClick={() => { setContextDraft(selectedDoc.contextNote || ''); setIsContextEditing(true); }} className="shrink-0 text-[11px] font-semibold text-indigo-700 hover:text-indigo-950">
+                      {selectedDoc.contextNote ? 'Edytuj' : 'Dodaj'}
+                    </button>
+                  )}
+                </div>
+                {isContextEditing && onUpdateDocumentContext && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={contextDraft}
+                      onChange={(event) => setContextDraft(event.target.value)}
+                      maxLength={2000}
+                      rows={4}
+                      aria-label="Kontekst dokumentu"
+                      className="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400"
+                      placeholder="Np. Otrzymane pocztą 4 marca; dotyczy odwołania od decyzji."
+                    />
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] text-indigo-700">{contextDraft.length}/2000 znaków · zapis lokalny</span>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setIsContextEditing(false)} className="rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-indigo-50">Anuluj</button>
+                        <button
+                          type="button"
+                          disabled={isSavingContext}
+                          onClick={async () => {
+                            setIsSavingContext(true);
+                            try {
+                              await onUpdateDocumentContext(selectedDoc.id, contextDraft);
+                              setIsContextEditing(false);
+                            } finally {
+                              setIsSavingContext(false);
+                            }
+                          }}
+                          className="rounded-lg bg-indigo-700 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-indigo-800 disabled:opacity-50"
+                        >
+                          {isSavingContext ? 'Zapisywanie…' : 'Zapisz kontekst'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Verification & OCR Actions */}
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -283,7 +361,7 @@ export function DiskDocumentsView({
                   className="inline-flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-sm"
                 >
                   <Eye className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Oryginał obok OCR</span>
+                  <span>Porównaj tekst / OCR</span>
                 </button>
 
                 {onRunLocalOcr && (
@@ -307,23 +385,39 @@ export function DiskDocumentsView({
               </div>
 
               {/* Multi-page Scan Splitting Action */}
-              {selectedDoc.originalFileName.includes('wielostronicowy') && (
+              {(selectedDoc.mimeType === 'application/pdf' || /\.pdf$/i.test(selectedDoc.originalFileName)) && (activeVersion?.pageCount || 0) > 1 && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-blue-950">
                     <Split className="w-4 h-4 text-blue-700" />
-                    <span>Logiczny podział skanu wielostronicowego</span>
+                    <span>Wyodrębnij wybrane strony PDF</span>
                   </div>
                   <p className="text-[11px] text-blue-800 leading-relaxed">
-                    Plik zawiera jednocześnie umowę oraz protokół zdawczo-odbiorczy.
-                    Możesz wyodrębnić dokumenty pochodne z zachowaniem oryginału i numeracji stron.
+                    Wybierz zakresy stron z {activeVersion?.pageCount}-stronicowego oryginału. Każdy zakres utworzy osobny PDF powiązany z dowodem źródłowym; oryginał pozostanie nienaruszony.
                   </p>
+                  {splitRanges.map((range, index) => <div key={index} className="space-y-1 rounded-lg border border-blue-200 bg-white p-2">
+                    <input aria-label={`Tytuł dokumentu ${index + 1}`} value={range.title} onChange={(event) => setSplitRanges((ranges) => ranges.map((item, i) => i === index ? { ...item, title: event.target.value } : item))} maxLength={120} className="w-full rounded border border-blue-100 px-2 py-1 text-xs" />
+                    <div className="flex items-center gap-2 text-[11px] text-blue-900">
+                      <label>Od <input aria-label={`Pierwsza strona zakresu ${index + 1}`} type="number" min={1} max={activeVersion?.pageCount} value={range.from} onChange={(event) => setSplitRanges((ranges) => ranges.map((item, i) => i === index ? { ...item, from: Number(event.target.value) } : item))} className="w-14 rounded border border-blue-100 px-1 py-1" /></label>
+                      <label>do <input aria-label={`Ostatnia strona zakresu ${index + 1}`} type="number" min={range.from} max={activeVersion?.pageCount} value={range.to} onChange={(event) => setSplitRanges((ranges) => ranges.map((item, i) => i === index ? { ...item, to: Number(event.target.value) } : item))} className="w-14 rounded border border-blue-100 px-1 py-1" /></label>
+                      {splitRanges.length > 1 && <button type="button" onClick={() => setSplitRanges((ranges) => ranges.filter((_, i) => i !== index))} className="ml-auto font-semibold">Usuń zakres</button>}
+                    </div>
+                  </div>)}
+                  <button type="button" onClick={() => setSplitRanges((ranges) => [...ranges, { from: 1, to: 1, title: `Dokument ${ranges.length + 1}` }])} className="text-[11px] font-semibold text-blue-800">+ Dodaj zakres</button>
                   <button
                     type="button"
-                    onClick={() => onSplitMultiPageScan(selectedDoc.id)}
-                    className="w-full text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 rounded-lg transition-colors"
+                    disabled={isSplitting}
+                    onClick={async () => {
+                      if (splitRanges.some((range) => !range.title.trim() || !Number.isSafeInteger(range.from) || !Number.isSafeInteger(range.to) || range.from < 1 || range.to < range.from || range.to > (activeVersion?.pageCount || 0))) { setSplitError('Podaj tytuł i poprawny zakres stron dla każdego dokumentu.'); return; }
+                      setIsSplitting(true); setSplitError('');
+                      try { await onSplitMultiPageScan(selectedDoc.id, splitRanges); }
+                      catch (error) { setSplitError(error instanceof Error ? error.message : 'Nie udało się wyodrębnić stron.'); }
+                      finally { setIsSplitting(false); }
+                    }}
+                    className="w-full text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
                   >
-                    Wyodrębnij dokumenty składowe (str. 1 i str. 2)
+                    {isSplitting ? 'Wyodrębnianie…' : 'Utwórz powiązane kopie wybranych stron'}
                   </button>
+                  {splitError && <p role="alert" className="text-xs text-rose-700">{splitError}</p>}
                 </div>
               )}
 
@@ -343,7 +437,7 @@ export function DiskDocumentsView({
                           v{v.versionNumber} ({v.kind})
                         </span>
                         <div className="text-[10px] text-slate-500">
-                          {v.pageRange ? `${v.pageRange.end - v.pageRange.start + 1} str.` : '1 str.'} | {v.createdAt.slice(0, 10)}
+                          {v.pageRange ? `${v.pageRange.end - v.pageRange.start + 1} str.` : v.pageCount ? `${v.pageCount} str.` : 'Liczba stron nieustalona'} | {v.createdAt.slice(0, 10)}
                         </div>
                       </div>
                       {v.id === selectedDoc.activeVersionId && (
@@ -399,6 +493,7 @@ export function DiskDocumentsView({
                   onConfirmField(fieldId, val);
                 }
               }}
+              onLoadOriginal={onLoadOriginal}
             />
             <div className="p-3 bg-slate-100 border-t border-slate-200 flex justify-end">
               <button
@@ -409,6 +504,49 @@ export function DiskDocumentsView({
                 Zamknij podgląd weryfikacji
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isImportDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-3">
+              <div>
+                <h2 id="import-dialog-title" className="text-base font-bold text-slate-900">Dodaj dokument do sejfu</h2>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600">Pliki zostaną zapisane lokalnie i zaszyfrowane na tym urządzeniu. Możesz dodać własny opis, żeby później łatwiej ocenić znaczenie dokumentu.</p>
+              </div>
+              <button type="button" disabled={isImporting} onClick={() => setIsImportDialogOpen(false)} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40" aria-label="Zamknij okno dodawania"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-4 rounded-xl bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-800">Wybrane pliki ({pendingFiles.length})</p>
+              <ul className="mt-2 max-h-24 space-y-1 overflow-y-auto text-[11px] text-slate-600">
+                {pendingFiles.map((file) => <li key={`${file.name}-${file.size}-${file.lastModified}`} className="truncate">{file.name} · {file.size} B</li>)}
+              </ul>
+            </div>
+            <label className="mt-4 block">
+              <span className="text-xs font-semibold text-slate-800">Kontekst od Ciebie <span className="font-normal text-slate-500">(opcjonalnie; wspólny dla wybranych plików)</span></span>
+              <textarea
+                value={contextNote}
+                onChange={(event) => setContextNote(event.target.value)}
+                maxLength={2000}
+                rows={4}
+                aria-describedby="import-context-help"
+                className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+                placeholder="Np. Pismo otrzymane 4 marca; dotyczy decyzji o odmowie pozwolenia."
+              />
+            </label>
+            <p id="import-context-help" className="mt-1.5 text-[11px] leading-relaxed text-slate-500">To Twoja notatka robocza, a nie ustalenie prawne ani treść dowodu. Nie trafia do OCR ani AI; przy włączonej synchronizacji jest objęta wyłącznie szyfrowanym manifestem.</p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" disabled={isImporting} onClick={() => setIsImportDialogOpen(false)} className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40">Anuluj</button>
+              <button type="button" disabled={isImporting || !pendingFiles.length} onClick={async () => {
+                setIsImporting(true); setImportError('');
+                try { await onImportFiles(pendingFiles, contextNote.trim() || undefined); setPendingFiles([]); setContextNote(''); setIsImportDialogOpen(false); }
+                catch (error) { setImportError(error instanceof Error ? error.message : 'Nie udało się zaimportować plików.'); }
+                finally { setIsImporting(false); }
+              }} className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50">{isImporting ? 'Zapis i lokalny odczyt…' : 'Dodaj do sejfu'}</button>
+            </div>
+            {importError && <p role="alert" className="mt-3 text-xs text-rose-700">{importError}</p>}
           </div>
         </div>
       )}

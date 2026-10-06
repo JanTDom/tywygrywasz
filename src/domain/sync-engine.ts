@@ -13,7 +13,7 @@ import {
   EncryptedContainer,
   validateEncryptedContainer as validateCryptoEncryptedContainer,
 } from './crypto';
-import { VaultManifest } from './types';
+import { VaultManifest, parseVaultManifest } from './types';
 
 const RECORD_ID_PATTERN = /^sync-[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -227,7 +227,7 @@ export class E2EESyncEngine {
   ): Promise<VaultManifest> {
     const normalized = validateSyncRecordPayload(payload);
     const decryptedJson = await decryptVault(normalized.encryptedContainer, userPassphrase);
-    return JSON.parse(decryptedJson) as VaultManifest;
+    return parseVaultManifest(JSON.parse(decryptedJson));
   }
 }
 
@@ -235,4 +235,24 @@ export class E2EESyncEngine {
 export async function legacyRevision(recordId: string, encryptedContainer: EncryptedContainer): Promise<string> {
   const digest = await computeSha256(`${recordId}:${encryptedContainer.ciphertextHex}`);
   return `legacy-${digest.slice(0, 48)}`;
+}
+
+export interface SyncManifestComparison {
+  changed: boolean;
+  local: { cases: number; documents: number; letters: number };
+  server: { cases: number; documents: number; letters: number };
+  changedCollections: string[];
+}
+
+/** Comparison happens after decryption, entirely on the client. Never expose a digest in the sync DTO. */
+export function compareSyncManifests(local: VaultManifest, server: VaultManifest): SyncManifestComparison {
+  if (local.vaultId !== server.vaultId) throw new Error('Pobrana struktura należy do innego sejfu.');
+  const collections = ['cases', 'documents', 'documentVersions', 'extractedFields', 'events', 'deadlines', 'legalSources', 'legalAnalyses', 'letters', 'relations', 'inboxProposals', 'history'] as const;
+  const changedCollections = collections.filter((name) => JSON.stringify(local[name] ?? []) !== JSON.stringify(server[name] ?? []));
+  return {
+    changed: changedCollections.length > 0,
+    local: { cases: local.cases.length, documents: local.documents.length, letters: local.letters.length },
+    server: { cases: server.cases.length, documents: server.documents.length, letters: server.letters.length },
+    changedCollections,
+  };
 }

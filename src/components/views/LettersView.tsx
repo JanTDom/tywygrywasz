@@ -4,23 +4,21 @@ import React, { useState } from 'react';
 import {
   FileText,
   CheckCircle2,
-  AlertTriangle,
-  Download,
   Copy,
   Printer,
   ShieldCheck,
   Plus,
   Send,
-  ExternalLink,
   Check,
 } from 'lucide-react';
-import { Case, LetterDraft, LetterType, LetterChecklistItem, getCaseInstitutions } from '../../domain/types';
+import { Case, LetterDraft, LetterType, getCaseInstitutions } from '../../domain/types';
 import {
   createModularLetterDraft,
   formatLetterPlainText,
   exportLetterForPrinting,
 } from '../../domain/letter-engine';
 import { ElectronicGatewayConnector } from '../../domain/electronic-gateway';
+import { printLetterText } from '../document/print-letter';
 
 interface LettersViewProps {
   cases: Case[];
@@ -46,6 +44,9 @@ export function LettersView({
 
   const [selectedLetterType, setSelectedLetterType] = useState<LetterType>('odwolanie');
   const [selectedLetterId, setSelectedLetterId] = useState<string | null>(null);
+  const [draftingNotes, setDraftingNotes] = useState('');
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState('');
 
   // Registration state
   const [receiptNumber, setReceiptNumber] = useState('');
@@ -148,9 +149,10 @@ export function LettersView({
       recipientName,
       recipientAddressOrChannel: recipientAddress,
       intermediaryAuthority,
-      citizenName: 'Jan Kowalski',
-      citizenAddress: 'ul. Grójecka 45 m. 12, 02-031 Warszawa',
-      caseSignature: 'WAB.6740.1.2026.JK',
+      citizenName: '[Imię i nazwisko / wnioskodawca]',
+      citizenAddress: '[Adres korespondencyjny / e-Doręczenia]',
+      caseSignature: '',
+      draftingNotes: draftingNotes.trim() || undefined,
       demands,
       factualBasis,
       legalJustification,
@@ -169,6 +171,7 @@ export function LettersView({
 
     onCreateLetter(draft);
     setSelectedLetterId(draft.id);
+    setDraftingNotes('');
   };
 
   const handleToggleChecklist = (itemId: string) => {
@@ -195,7 +198,7 @@ export function LettersView({
       exportSha256: exportResult.exportSha256,
       status: 'exported',
     });
-    window.print();
+    printLetterText(exportResult.formattedText);
   };
 
   const handleSaveReceipt = (e: React.FormEvent) => {
@@ -211,10 +214,10 @@ export function LettersView({
     const connector = new ElectronicGatewayConnector();
     const plainText = formatLetterPlainText(activeLetter);
     const envelope = await connector.createPurdeEnvelope({
-      senderName: activeLetter.sender?.placeholderName || 'Jan Kowalski',
-      recipientAdeAddress: 'AE:PL-12345-67890-URZAD-01',
+      senderName: activeLetter.sender?.placeholderName || '[Dane nadawcy do uzupełnienia]',
+      recipientAdeAddress: '[Adres e-Doręczenia do uzupełnienia]',
       recipientName: activeLetter.recipient?.name || currentCase.authorityOrOpponentName,
-      caseSignature: activeLetter.caseSignature || 'ZNAK-BRAK',
+      caseSignature: activeLetter.caseSignature || '[Znak sprawy do uzupełnienia]',
       subject: activeLetter.title,
       attachments: [
         {
@@ -255,13 +258,32 @@ export function LettersView({
 
       {/* Generator Controls Card */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-bold text-slate-900">
               Generuj nowe pismo procesowe
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Wybierz rodzaj szablonu dopasowanego do polskiej procedury.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+            <label htmlFor="letter-drafting-notes" className="block text-xs font-semibold text-indigo-950">
+              Dodatkowe wskazówki do projektu <span className="font-normal text-indigo-700">(opcjonalnie)</span>
+            </label>
+            <textarea
+              id="letter-drafting-notes"
+              value={draftingNotes}
+              onChange={(event) => setDraftingNotes(event.target.value)}
+              maxLength={4000}
+              rows={3}
+              aria-describedby="letter-drafting-notes-help"
+              placeholder="Np. podkreśl brak odpowiedzi organu i zostaw miejsce na datę doręczenia."
+              className="mt-1.5 w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <p id="letter-drafting-notes-help" className="mt-1 text-[11px] leading-relaxed text-indigo-800">
+              To prywatna notatka robocza dla Ciebie. Nie jest faktem prawnym i nie zostanie automatycznie dodana do eksportowanego pisma.
             </p>
           </div>
 
@@ -394,6 +416,27 @@ export function LettersView({
               {/* Formatted Letter Paper View */}
               <div className="bg-slate-50/50 border border-slate-200 rounded-xl p-6 font-serif text-xs text-slate-900 leading-relaxed whitespace-pre-wrap shadow-inner max-h-[500px] overflow-y-auto">
                 {formatLetterPlainText(activeLetter)}
+              </div>
+
+              <div className="no-print rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-amber-950">Wskazówki robocze</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-amber-900">Notatka pozostaje w prywatnym sejfie i nie trafia do treści pisma ani wydruku.</p>
+                  </div>
+                  {!isEditingNotes && <button type="button" onClick={() => { setNotesDraft(activeLetter.draftingNotes || ''); setIsEditingNotes(true); }} className="shrink-0 text-[11px] font-semibold text-amber-800 hover:text-amber-950">{activeLetter.draftingNotes ? 'Edytuj' : 'Dodaj'}</button>}
+                </div>
+                {isEditingNotes ? (
+                  <div className="mt-2 space-y-2">
+                    <textarea value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} maxLength={4000} rows={3} className="w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:ring-2 focus:ring-amber-300" aria-label="Wskazówki robocze pisma" />
+                    <div className="flex justify-end gap-2">
+                      <button type="button" onClick={() => setIsEditingNotes(false)} className="rounded-lg border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-amber-50">Anuluj</button>
+                      <button type="button" onClick={() => { onUpdateLetter({ ...activeLetter, draftingNotes: notesDraft.trim() || undefined }); setIsEditingNotes(false); }} className="rounded-lg bg-amber-700 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-amber-800">Zapisz wskazówki</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-amber-950">{activeLetter.draftingNotes || 'Brak dodatkowych wskazówek.'}</p>
+                )}
               </div>
             </div>
           </div>

@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source('../');
+@import './tailwind-v3-compat.css';
 
 :root {
   --canvas: #f5f7f6;
@@ -35,7 +34,9 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-button, input, select, textarea { font: inherit; }
+@layer base {
+  button, input, select, textarea { font: inherit; }
+}
 
 :where(h1, h2, h3, h4, p, li, small, figcaption) {
   widows: 2;
@@ -444,8 +445,8 @@ button, input, select, textarea { font: inherit; }
 .notice-bar svg { color: #86dbb4; }
 .notice-bar button { display: grid; place-items: center; padding: 4px; color: #9fc5b5; background: none; border: 0; cursor: pointer; }
 .notice-bar button:hover { color: #fff; }
-.account-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(16, 33, 49, 0.46); backdrop-filter: blur(7px); }
-.account-dialog { width: min(100%, 470px); padding: 25px; background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 26px 80px rgba(16,33,49,0.24); }
+.account-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: rgba(16, 33, 49, 0.46); backdrop-filter: blur(7px); }
+.account-dialog { width: min(100%, 470px); max-height: calc(100dvh - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 25px; background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 26px 80px rgba(16,33,49,0.24); }
 .search-dialog { width: min(100%, 680px); }
 .search-dialog-input { display: flex; align-items: center; gap: 10px; margin-top: 20px; padding: 0 14px; min-height: 48px; color: #5a717d; background: #f7f9fa; border: 1px solid var(--line); border-radius: 12px; }
 .search-dialog-input:focus-within { border-color: #4b9a8d; box-shadow: 0 0 0 3px rgba(75,154,141,0.13); }

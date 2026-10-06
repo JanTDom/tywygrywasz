@@ -30,6 +30,22 @@ import {
   parseVaultManifest,
 } from './types';
 
+/** Maksymalny rozmiar prywatnej notatki kontekstowej przy imporcie dokumentu. */
+export const MAX_DOCUMENT_CONTEXT_NOTE_LENGTH = 2_000;
+
+function normalizeDocumentContextNote(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('Kontekst dokumentu musi być tekstem.');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > MAX_DOCUMENT_CONTEXT_NOTE_LENGTH) {
+    throw new Error(`Kontekst dokumentu może mieć najwyżej ${MAX_DOCUMENT_CONTEXT_NOTE_LENGTH} znaków.`);
+  }
+  return trimmed;
+}
+
 export class LocalVault {
   public vaultId: string;
   public workspacePath: string;
@@ -118,6 +134,9 @@ export class LocalVault {
   // --- Document Import & Immutability ---
   public async importDocument(params: {
     caseId?: string;
+    sourceDocumentId?: string;
+    sourceVersionId?: string;
+    sourcePageRange?: { start: number; end: number };
     type: DocumentRecord['type'];
     direction: DocumentRecord['direction'];
     origin: DocumentRecord['origin'];
@@ -131,8 +150,11 @@ export class LocalVault {
      * small text placeholder in the encrypted manifest. */
     originalSha256?: string;
     fileSize?: number;
+    /** Opcjonalna, prywatna notatka użytkownika; nie jest treścią dowodu. */
+    contextNote?: string;
   }): Promise<{ document: DocumentRecord; initialVersion: DocumentVersion; isDuplicate: boolean }> {
     const contentHash = params.originalSha256 || await computeSha256(params.content);
+    const contextNote = normalizeDocumentContextNote(params.contextNote);
 
     // Wykrywanie dokładnego duplikatu według hasha SHA-256
     let isDuplicate = false;
@@ -169,7 +191,11 @@ export class LocalVault {
     const docRecord: DocumentRecord = {
       id: docId,
       caseIds: params.caseId ? [params.caseId] : [],
+      sourceDocumentId: params.sourceDocumentId,
+      sourceVersionId: params.sourceVersionId,
+      sourcePageRange: params.sourcePageRange,
       institutionIds: params.institutionIds,
+      contextNote,
       type: params.type,
       direction: params.direction,
       origin: params.origin,
@@ -196,6 +222,25 @@ export class LocalVault {
     return { document: docRecord, initialVersion, isDuplicate };
   }
 
+  /**
+   * Aktualizuje wyłącznie prywatną notatkę kontekstową dokumentu.
+   * Oryginał, jego hash oraz drzewo wersji pozostają bez zmian.
+   */
+  public updateDocumentContext(documentId: string, contextNote?: string): DocumentRecord {
+    const document = this.documents.get(documentId);
+    if (!document) {
+      throw new Error(`Dokument o ID ${documentId} nie istnieje w sejfie.`);
+    }
+
+    const normalizedContext = normalizeDocumentContextNote(contextNote);
+    if (normalizedContext === undefined) {
+      delete document.contextNote;
+    } else {
+      document.contextNote = normalizedContext;
+    }
+    return document;
+  }
+
   // --- Document Versioning (Korekta OCR / Edycja) ---
   public async addDocumentVersion(params: {
     documentId: string;
@@ -218,17 +263,21 @@ export class LocalVault {
     const hash = await computeSha256(params.textPayload);
     const now = new Date().toISOString();
 
+    const parentVersionId = params.parentVersionId || doc.activeVersionId;
+    const parentVersion = this.documentVersions.get(parentVersionId);
     const newVersion: DocumentVersion = {
       id: versionId,
       documentId: params.documentId,
       versionNumber: nextVersionNumber,
-      parentVersionId: params.parentVersionId || doc.activeVersionId,
+      parentVersionId,
       kind: params.kind,
       contentSha256: hash,
       textPayload: params.textPayload,
       createdAt: now,
       toolOrAuthor: params.toolOrAuthor,
       pageRange: params.pageRange,
+      pageCount: parentVersion?.pageCount,
+      sourceOriginalSha256: parentVersion?.sourceOriginalSha256,
     };
 
     this.documentVersions.set(versionId, newVersion);

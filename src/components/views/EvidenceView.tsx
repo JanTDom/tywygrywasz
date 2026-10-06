@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Users,
   Search,
-  FileText,
 } from 'lucide-react';
 import { Case, LegalAnalysis, DocumentRecord } from '../../domain/types';
 
@@ -27,7 +26,6 @@ export function EvidenceView({
   activeCaseId,
   onSelectCase,
   analysis,
-  documents,
 }: EvidenceViewProps) {
   const currentCaseId = activeCaseId || cases[0]?.id;
 

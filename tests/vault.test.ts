@@ -47,6 +47,45 @@ describe('Local Document Vault & Cryptography', () => {
     expect(updatedCase?.status).toBe('analyzing');
   });
 
+  it('trims, updates and restores optional document context without changing the original', async () => {
+    const vault = new LocalVault('test-vault-context');
+    const newCase = vault.createCase({
+      title: 'Sprawa z kontekstem dokumentu',
+      goalDescription: 'Ustalenie dalszego kroku',
+      procedureType: 'administrative',
+      authorityName: 'Burmistrz',
+      authorityJurisdictionReason: 'Właściwość organu',
+    });
+    const content = 'Treść dokumentu pozostaje niezmieniona.';
+    const imported = await vault.importDocument({
+      caseId: newCase.id,
+      type: 'other',
+      direction: 'incoming',
+      origin: 'pdf_digital',
+      originalFileName: 'dokument-z-kontekstem.txt',
+      mimeType: 'text/plain',
+      content,
+      contextNote: '  Otrzymane po rozmowie telefonicznej; sprawdzić termin.  ',
+    });
+
+    expect(imported.document.contextNote).toBe('Otrzymane po rozmowie telefonicznej; sprawdzić termin.');
+    expect(imported.document.originalSha256).toBe(await computeSha256(content));
+    expect(imported.initialVersion.textPayload).toBe(content);
+
+    const updated = vault.updateDocumentContext(imported.document.id, '  Użytkownik twierdzi, że pismo odebrano osobiście. ');
+    expect(updated.contextNote).toBe('Użytkownik twierdzi, że pismo odebrano osobiście.');
+    expect(vault.documentVersions.get(imported.document.activeVersionId)?.textPayload).toBe(content);
+    expect(() => vault.updateDocumentContext(imported.document.id, 'x'.repeat(2_001))).toThrow(/najwyżej 2000/);
+    expect(vault.toManifest().documents.find((doc) => doc.id === imported.document.id)?.contextNote)
+      .toBe('Użytkownik twierdzi, że pismo odebrano osobiście.');
+
+    const restored = await LocalVault.restoreFromEncryptedBackup(
+      await vault.exportEncryptedBackup('haslo-kontekst-2026'),
+      'haslo-kontekst-2026',
+    );
+    expect(restored.documents.get(imported.document.id)?.contextNote).toBe('Użytkownik twierdzi, że pismo odebrano osobiście.');
+  });
+
   it('detects exact duplicate by SHA-256 and does not overwrite existing document', async () => {
     const vault = new LocalVault('test-vault-2');
     const c = vault.createCase({
@@ -104,7 +143,10 @@ describe('Local Document Vault & Cryptography', () => {
       content: 'Błędny odczyt OCR: sygnatura WAB/123/26',
     });
 
-    // Użytkownik koryguje OCR
+    initialVersion.pageCount = 3;
+    initialVersion.sourceOriginalSha256 = document.originalSha256;
+    initialVersion.sourceLines = [{ text: 'Błędny odczyt', pageNumber: 2, lineIndex: 0, confidence: 60, bounds: { x: 10, y: 10, width: 50, height: 10 } }];
+    // Użytkownik koryguje OCR; geometria starego tekstu nie opisuje nowej korekty.
     const correctedVersion = await vault.addDocumentVersion({
       documentId: document.id,
       kind: 'user_corrected',
@@ -115,6 +157,9 @@ describe('Local Document Vault & Cryptography', () => {
 
     expect(correctedVersion.versionNumber).toBe(2);
     expect(correctedVersion.parentVersionId).toBe(initialVersion.id);
+    expect(correctedVersion.pageCount).toBe(3);
+    expect(correctedVersion.sourceOriginalSha256).toBe(document.originalSha256);
+    expect(correctedVersion.sourceLines).toBeUndefined();
     expect(vault.documents.get(document.id)?.activeVersionId).toBe(correctedVersion.id);
   });
 

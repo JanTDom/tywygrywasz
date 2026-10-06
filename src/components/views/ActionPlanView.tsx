@@ -5,11 +5,7 @@ import {
   ListTodo,
   CheckCircle2,
   Clock,
-  AlertTriangle,
-  FileText,
   ArrowRight,
-  HelpCircle,
-  ShieldAlert,
 } from 'lucide-react';
 import { Case, ActionPlanStep } from '../../domain/types';
 import { ViewType } from '../Navigation';
@@ -32,7 +28,6 @@ export function ActionPlanView({
   onNavigate,
 }: ActionPlanViewProps) {
   const currentCaseId = activeCaseId || cases[0]?.id;
-  const currentCase = cases.find((c) => c.id === currentCaseId);
 
   const completedCount = actionPlan.filter((s) => s.status === 'completed').length;
   const totalCount = actionPlan.length;

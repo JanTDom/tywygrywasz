@@ -3,12 +3,10 @@
 import React, { useState } from 'react';
 import {
   Clock,
-  Calendar,
   AlertTriangle,
   CheckCircle2,
   FileText,
   Plus,
-  ArrowRight,
   HelpCircle,
 } from 'lucide-react';
 import { Case, CaseEvent, DatePrecision, EventType } from '../../domain/types';

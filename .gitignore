@@ -13,3 +13,9 @@ yarn-error.log*
 *.tsbuildinfo
 Moje_sprawy/
 .vercel
+public/ocr/
+public/pdf/
+test-results/
+playwright-report/
+output/
+supabase/.temp/

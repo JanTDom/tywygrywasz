@@ -13,6 +13,22 @@
 import { computeSha256 } from './crypto';
 import { LetterChecklistItem, LetterDraft, LetterType } from './types';
 
+/** Maksymalny rozmiar prywatnych wskazówek roboczych do projektu pisma. */
+export const MAX_LETTER_DRAFTING_NOTES_LENGTH = 4_000;
+
+function normalizeDraftingNotes(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') {
+    throw new Error('Wskazówki do projektu pisma muszą być tekstem.');
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length > MAX_LETTER_DRAFTING_NOTES_LENGTH) {
+    throw new Error(`Wskazówki do projektu pisma mogą mieć najwyżej ${MAX_LETTER_DRAFTING_NOTES_LENGTH} znaków.`);
+  }
+  return trimmed;
+}
+
 export interface CreateLetterDraftInput {
   caseId: string;
   letterType: LetterType;
@@ -26,6 +42,8 @@ export interface CreateLetterDraftInput {
   demands: string[];
   factualBasis: string;
   legalJustification: string;
+  /** Prywatna notatka robocza; nie trafia automatycznie do eksportu pisma. */
+  draftingNotes?: string;
   attachments?: { id: string; title: string; documentId?: string; included: boolean }[];
 }
 
@@ -39,6 +57,7 @@ export function createAdministrativeAppealDraft(input: {
   demands: string[];
   factualBasis: string;
   legalJustification: string;
+  draftingNotes?: string;
   attachments?: { id: string; title: string; documentId?: string; included: boolean }[];
 }): LetterDraft {
   return createModularLetterDraft({
@@ -54,6 +73,7 @@ export function createAdministrativeAppealDraft(input: {
     demands: input.demands,
     factualBasis: input.factualBasis,
     legalJustification: input.legalJustification,
+    draftingNotes: input.draftingNotes,
     attachments: input.attachments,
   });
 }
@@ -72,6 +92,7 @@ export function createModularLetterDraft(input: CreateLetterDraftInput): LetterD
     demands,
     factualBasis,
     legalJustification,
+    draftingNotes,
     attachments = [],
   } = input;
 
@@ -288,6 +309,7 @@ export function createModularLetterDraft(input: CreateLetterDraftInput): LetterD
     caseId,
     title,
     letterType,
+    draftingNotes: normalizeDraftingNotes(draftingNotes),
     recipient: {
       name: recipientName,
       addressOrChannel: recipientAddressOrChannel,

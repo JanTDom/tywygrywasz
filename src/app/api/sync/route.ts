@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { readLimitedRequestText } from '@/domain/http-body';
 import {
   legacyRevision,
   SyncRecordPayload,
@@ -58,12 +59,7 @@ function sameOwner(record: SyncRecordPayload, userId: string): boolean {
 }
 
 async function parsePayload(req: NextRequest): Promise<SyncRecordPayload> {
-  const contentLength = Number(req.headers.get('content-length') || 0);
-  if (contentLength > MAX_SYNC_BODY_BYTES) throw new Error('Pakiet synchronizacyjny jest zbyt duży.');
-  const raw = await req.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_SYNC_BODY_BYTES) {
-    throw new Error('Pakiet synchronizacyjny jest zbyt duży.');
-  }
+  const raw = await readLimitedRequestText(req, MAX_SYNC_BODY_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

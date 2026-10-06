@@ -58,7 +58,7 @@ Szczegół decyzji: [ADR 0004](decisions/0004-multiple-institutions-per-case.md)
 
 ### Lokalny dysk i sejf
 
-Projekt ma obsługiwać rzeczywiste pliki użytkownika i czytelną strukturę katalogów sprawy. W lokalnym środowisku `/api/workspace` działa jako most Node.js do wybranego katalogu. Na Vercel filesystem funkcji jest efemeryczny, dlatego produkcja korzysta z importu przeglądarkowego/local-first, a nie z udawania stałego dysku serwera.
+Zwykły przebieg aplikacji korzysta z importu przeglądarkowego i szyfrowanego IndexedDB. Kolekcje sprawy są lokalnymi metadanymi. `/api/workspace` pozostaje mostem wyłącznie deweloperskim; odmawia pracy przy `NODE_ENV=production` i na Vercel. UI nie przesyła do niego dokumentów.
 
 Domyślnie lokalnie zostają: oryginały, OCR, nazwy, prywatny indeks, miniatury, notatki, szkice, hashe prywatne i klucze. Szyfrowanie chroni zamknięty sejf i zaszyfrowane rekordy, lecz nie chroni odblokowanej przeglądarki, złośliwego kodu ani zainfekowanego komputera. Użytkownik otrzymuje informację o backupie i ograniczeniach.
 
@@ -117,11 +117,11 @@ Strona Kontakt pokazuje nazwę, NIP, REGON i e-mail, bez adresu ulicy. Regulamin
 ## 5. Stan wdrożenia
 
 - Repozytorium docelowe: [JanTDom/tywygrywasz](https://github.com/JanTDom/tywygrywasz), `main`.
-- Ostatni zapisany commit w chwili utworzenia pamięci: `93939c8` (`Match verified seller address spelling`).
-- Produkcja: [https://tywygrywasz.pl/](https://tywygrywasz.pl/), Vercel, ostatni wdrożony deployment zakończony statusem `READY`.
+- Baza obecnych zmian lokalnych: `4165c4ca56b32c35503daaedae5c2675376c2d5a`. Prace z 6 października obejmujące sejf, OCR i odzyskiwanie konta pozostają w katalogu roboczym; nie są jeszcze nowym wdrożeniem produkcyjnym.
+- Istniejąca produkcja: [https://tywygrywasz.pl/](https://tywygrywasz.pl/), Vercel. Historyczne sprawdzenie poprzedniego wdrożenia: `READY`; nie dowodzi wdrożenia dzisiejszych zmian.
 - Potwierdzone ścieżki produkcyjne: `/`, `/kontakt`, `/regulamin`, `/polityka-prywatnosci`, `/kup` i endpoint konfiguracji płatności odpowiadają.
-- Ostatnia walidacja kodu: `npm run typecheck`, `npm test -- --run` — 23 pliki i 93 testy, `npm run build` — przechodzą.
-- Podczas builda Vercel zgłasza istniejące ostrzeżenie o 5 podatnościach wysokiego poziomu w zależnościach. Nie wykonano automatycznego `npm audit fix --force`, aby nie wprowadzić niezweryfikowanych zmian.
+- Wyniki dzisiejszej walidacji i granice testów opisuje `docs/IMPLEMENTATION_STATUS.md`.
+- `npm audit --omit=dev` z 6 października: zero zgłoszonych podatności zależności produkcyjnych. Pełny audit także pokazuje zero zgłoszeń po migracji Tailwind 4.3.3 i resolvera pluginu ESLint Next. Warstwa zgodności zachowuje tokeny wyglądu v3; minimalny browser to Safari 16.4+, Chrome 111+ lub Firefox 128+.
 
 ## 6. Płatności — stan i następne kroki
 
@@ -130,7 +130,7 @@ Sprzedaż jest celowo wyłączona. Publiczna konfiguracja nie ma ceny oferty ani
 Przed pierwszą płatnością trzeba:
 
 1. ustalić cenę i dokładny zakres oferty TyWygrywasz;
-2. zastosować migrację `20261005113000_payment_orders.sql` w właściwym projekcie Supabase;
+2. migracja `payment_orders` jest zastosowana w docelowym Supabase `tywygrywasz` (`aueatowylwgcgpjdpqdz`), RLS i uprawnienia serwerowe sprawdzone;
 3. ustawić sekrety P24 i publiczne URL-e Production/Preview w Vercel;
 4. skonfigurować webhook i przejść płatność sandbox;
 5. przejrzeć regulamin, politykę prywatności, zasady odstąpienia i reklamację;
@@ -140,11 +140,10 @@ Nie wpisuj wartości sekretów do tego dokumentu. Dane przekazane kiedyś w rozm
 
 ## 7. Otwarty backlog
 
-- Dokończyć trwałą warstwę IndexedDB/OPFS i testy odtwarzania na czystym profilu.
-- Dodać weryfikację e-mail, reset hasła, rate limiting, rotację sesji i monitoring bez PII.
-- Dokończyć lokalny OCR w workerze z polskim słownikiem i podglądem fragmentów.
+- Migracje konta i płatności są zastosowane oraz zweryfikowane w docelowym Supabase. Pozostaje zewnętrzna konfiguracja zweryfikowanego nadawcy i sekretu Resend oraz sprawdzenie dostarczenia kodów. Brak poczty nie blokuje rejestracji; adres pozostaje niepotwierdzony, a UI pokazuje niedostępność wysyłki.
+- Wdrożyć i sprawdzić obecne zmiany w skonfigurowanym środowisku produkcyjnym. IndexedDB, pełna kopia, odtworzenie, lokalny OCR oraz cykl konta mają implementację i testy lokalne opisane w `IMPLEMENTATION_STATUS.md`.
 - Rozszerzać procedury dopiero po zebraniu właściwych źródeł i testach: informacja publiczna, skargi, petycje, konsument, umowy, podatki/ZUS.
-- Dodać test sieciowy wykrywający wysyłkę canary PII z dokumentów, nazw, OCR, dat, indeksu i szkiców.
+- Rozszerzać obecny browser canary o nowe przepływy wraz z ich dodawaniem. Import/OCR/backup/restore/reload/relink są sprawdzane na syntetycznych plikach.
 - Przejść ręczny audyt dostępności WCAG 2.2 AA, klawiatury, mobile i druku.
 - Przeprowadzić przegląd prawny przed włączeniem sprzedaży.
 
@@ -165,3 +164,11 @@ Nie wpisuj wartości sekretów do tego dokumentu. Dane przekazane kiedyś w rozm
 ## 9. Jak zaczynać następną sesję
 
 Powiedz agentowi: „Przeczytaj `PROJECT.md`, `docs/PROJECT_MEMORY.md`, `AGENTS.md` i dokument odpowiadający zadaniu. Sprawdź stan repozytorium i nie kopiuj sekretów.” Następnie wskaż konkretny etap backlogu albo plik. Każdą nową decyzję, która zmienia prywatność, model danych, płatności lub zakres produktu, dopisz tutaj i — jeśli to decyzja architektoniczna — jako osobny ADR.
+
+## 10. Domknięcie sejfu, OCR i konta — 6 października 2026
+
+Dodano pełną szyfrowaną kopię z oryginałami, lokalną kopertę klucza i blokadę sejfu, jawne rozwiązywanie konfliktów synchronizacji z punktem powrotu, weryfikację ponownie wskazanego oryginału, Tesseract pol/eng i PDF.js z zasobami same-origin, rzeczywisty podział PDF na pochodne, potwierdzanie adresu, reset hasła i odwołanie sesji. Kontekst dokumentu oraz wskazówki pisma pozostają opcjonalne i prywatne. Wydruk ma osobny dokument zawierający wyłącznie wybrany projekt. Zmiana konta blokuje poprzedni sejf przed uwierzytelnieniem; błąd klucza lub manifestu nie odsłania wcześniejszych danych.
+
+Decyzje: `0004-account-recovery.md`, `0005-portable-backup-and-local-unlock.md`, `0011-local-ocr-pdf-provenance.md`. Numery starszych ADR pozostawiono bez zmiany nazw i odnośników.
+
+Dalsze poprawki z 6 października: IDB oddzielone dla pary właściciel/sejf, jednorazowa migracja bez usuwania starszych szyfrogramów, epoch odrzucający spóźnione operacje po zmianie konta, walidacja przynależności wersji dokumentu w kopii oraz zapis manifestu kończony przed powrotem z częściowego importu. Hybrydowe PDF odczytują również skan pod cyfrowym nagłówkiem. Formularze mają przewijanie na telefonach. Konfiguracja deploymentu wyklucza lokalne sprawy, sekrety i artefakty testowe. ADR 0012 opisuje namespace oryginałów.

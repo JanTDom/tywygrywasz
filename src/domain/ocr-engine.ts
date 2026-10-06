@@ -9,14 +9,11 @@
  */
 
 import { computeSha256 } from './crypto';
-import { DocumentRecord, DocumentVersion } from './types';
+import { DocumentRecord, DocumentVersion, DocumentSourceLine, SourceBounds } from './types';
+import { loadLocalPdf, pdfPageAsPng, pdfPageContainsRaster, readPdfPageLines } from './pdf-document';
+import { BundledPolishOcrProvider } from './local-ocr-provider';
 
-export interface OcrBoundingBox {
-  pageNumber: number;
-  lineIndex: number;
-  text: string;
-  confidence: number;
-}
+export type OcrBoundingBox = DocumentSourceLine;
 
 export interface OcrProgress {
   phase: 'decode' | 'pdf-text' | 'ocr' | 'complete';
@@ -35,7 +32,7 @@ export interface LocalOcrProviderInput {
 export interface LocalOcrProviderResult {
   text: string;
   confidence?: number;
-  lines?: Array<{ text: string; pageNumber?: number; confidence?: number }>;
+  lines?: Array<{ text: string; pageNumber?: number; confidence?: number; bounds?: SourceBounds }>;
   detectedLanguage?: string;
 }
 
@@ -51,7 +48,8 @@ export interface OcrResult {
   sourceSha256: string;
   isDegradedQuality: boolean;
   warnings: string[];
-  extractionMethod?: 'text' | 'rtf' | 'pdf-text' | 'ocr';
+  extractionMethod?: 'text' | 'rtf' | 'pdf-text' | 'ocr' | 'pdf-mixed';
+  pageCount?: number;
 }
 
 export interface DocumentProcessingParams {
@@ -64,7 +62,7 @@ export interface DocumentProcessingParams {
 }
 
 export class LocalDocumentError extends Error {
-  public readonly code: 'UNSUPPORTED_FORMAT' | 'OCR_PROVIDER_UNAVAILABLE' | 'CANCELLED' | 'MALFORMED_DOCUMENT';
+  public readonly code: 'UNSUPPORTED_FORMAT' | 'OCR_PROVIDER_UNAVAILABLE' | 'CANCELLED' | 'MALFORMED_DOCUMENT' | 'PASSWORD_REQUIRED';
 
   constructor(code: LocalDocumentError['code'], message: string) {
     super(message);
@@ -114,33 +112,18 @@ export function parseRtf(input: string): string {
   return text.replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
 }
 
-/**
- * Extract visible literal strings and simple TJ arrays from an uncompressed
- * PDF text layer. Scanned/image-only PDFs intentionally return an empty text
- * result so the caller can invoke the injected OCR provider.
- */
-export function extractPdfText(bytes: Uint8Array): string {
-  const source = new TextDecoder('latin1').decode(bytes);
-  if (!source.startsWith('%PDF-')) throw new LocalDocumentError('MALFORMED_DOCUMENT', 'Plik nie zawiera poprawnego nagłówka PDF.');
-
-  const output: string[] = [];
-  const literal = /\((?:\\.|[^\\)])*\)/g;
-  let match: RegExpExecArray | null;
-  while ((match = literal.exec(source))) {
-    const value = match[0].slice(1, -1)
-      .replace(/\\([()\\])/g, '$1')
-      .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
-      .replace(/\\([0-7]{1,3})/g, (_all, octal: string) => String.fromCharCode(Number.parseInt(octal, 8)));
-    if (/[A-Za-zÀ-ž0-9]/.test(value)) output.push(value);
-  }
-
-  const tj = /\[([^\]]+)\]\s*TJ/g;
-  while ((match = tj.exec(source))) {
-    const chunks = match[1].match(/\((?:\\.|[^\\)])*\)/g) || [];
-    const value = chunks.map((chunk) => chunk.slice(1, -1).replace(/\\([()\\])/g, '$1')).join('');
-    if (/[A-Za-zÀ-ž0-9]/.test(value)) output.push(value);
-  }
-  return output.join('\n').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+/** Extract a real PDF text layer with decompression, Unicode fonts and page identity. */
+export async function extractPdfText(bytes: Uint8Array): Promise<string> {
+  const pdf = await loadLocalPdf(bytes);
+  try {
+    const pages: string[] = [];
+    for (let number = 1; number <= pdf.numPages; number++) {
+      const page = await pdf.getPage(number);
+      pages.push((await readPdfPageLines(page)).map((line) => line.text).join('\n'));
+      page.cleanup();
+    }
+    return pages.join('\n\f\n').trim();
+  } finally { await pdf.dispose(); }
 }
 
 function lineConfidence(line: string): number {
@@ -150,7 +133,8 @@ function lineConfidence(line: string): number {
 
 function makeLines(text: string, pageCount: number, confidence?: number): OcrBoundingBox[] {
   return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line, index) => ({
-    pageNumber: Math.min(Math.max(1, pageCount), Math.floor(index / 45) + 1),
+    // Plain text has no physical page map; never invent pagination.
+    pageNumber: 1,
     lineIndex: index + 1,
     text: line,
     confidence: confidence ?? lineConfidence(line),
@@ -165,14 +149,36 @@ function buildResult(text: string, sourceSha256: string, method: OcrResult['extr
   if (isDegradedQuality && !finalWarnings.some((warning) => warning.includes('weryfikacji'))) {
     finalWarnings.unshift('Wynik wymaga ręcznej weryfikacji z oryginałem dokumentu.');
   }
-  return { fullText: text, averageConfidence, lines, detectedLanguage, sourceSha256, isDegradedQuality, warnings: finalWarnings, extractionMethod: method };
+  return { fullText: text, averageConfidence, lines, pageCount, detectedLanguage, sourceSha256, isDegradedQuality, warnings: finalWarnings, extractionMethod: method };
+}
+
+function sameLocatedLine(embedded: OcrBoundingBox, recognized: OcrBoundingBox): boolean {
+  const normalize = (text: string) => text.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pl');
+  if (normalize(embedded.text) !== normalize(recognized.text) || !embedded.bounds || !recognized.bounds) return false;
+  const a = embedded.bounds;
+  const b = recognized.bounds;
+  const overlapWidth = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const overlapHeight = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  const smallerArea = Math.min(a.width * a.height, b.width * b.height);
+  return smallerArea > 0 && overlapWidth * overlapHeight / smallerArea >= 0.5;
+}
+
+/** Keep exact digital text and its bounds; remove only the same text at the same location. */
+function mergePdfPageLines(embedded: OcrBoundingBox[], recognized: OcrBoundingBox[], pageNumber: number): OcrBoundingBox[] {
+  const additional = recognized.filter((line) => !embedded.some((digital) => sameLocatedLine(digital, line)));
+  const combined = [...embedded, ...additional];
+  // Located mixed lines follow the displayed page. Unlocated OCR remains in provider order.
+  if (combined.every((line) => line.bounds)) {
+    combined.sort((a, b) => a.bounds!.y - b.bounds!.y || a.bounds!.x - b.bounds!.x);
+  }
+  return combined.map((line, index) => ({ ...line, pageNumber, lineIndex: index + 1 }));
 }
 
 export class LocalOcrEngine {
   private readonly provider?: LocalOcrProvider;
 
   constructor(provider?: LocalOcrProvider) {
-    this.provider = provider;
+    this.provider = provider ?? (typeof window !== 'undefined' ? new BundledPolishOcrProvider() : undefined);
   }
 
   public async processDocument(params: DocumentProcessingParams): Promise<OcrResult> {
@@ -202,11 +208,52 @@ export class LocalOcrEngine {
     }
     if (ext === 'pdf' || mime === 'application/pdf') {
       params.onProgress?.({ phase: 'pdf-text', progress: 0.25, message: 'Wyszukiwanie tekstu osadzonego w PDF…' });
-      const text = extractPdfText(bytes);
-      if (text) return buildResult(text, sourceSha256, 'pdf-text', pageCount, 96);
-      if (!this.provider) {
-        throw new LocalDocumentError('OCR_PROVIDER_UNAVAILABLE', 'Ten PDF jest skanem bez warstwy tekstowej. Dodaj lokalny silnik OCR z polskim modelem, aby go rozpoznać. Oryginał pozostaje dostępny.');
+      let pdf;
+      try { pdf = await loadLocalPdf(bytes, params.signal); }
+      catch (error) {
+        throwIfAborted(params.signal);
+        if (error instanceof Error && error.name === 'PasswordException') {
+          throw new LocalDocumentError('PASSWORD_REQUIRED', 'PDF jest chroniony hasłem. Oryginał pozostaje nienaruszony; odblokuj kopię lokalnie i dodaj ją jako nową wersję.');
+        }
+        throw new LocalDocumentError('MALFORMED_DOCUMENT', 'Nie można odczytać struktury PDF. Sprawdź plik w lokalnym czytniku; oryginał pozostaje zachowany.');
       }
+      const lines: OcrBoundingBox[] = [];
+      const warnings: string[] = [];
+      let ocrPages = 0;
+      let embeddedPages = 0;
+      try {
+        for (let number = 1; number <= pdf.numPages; number++) {
+          throwIfAborted(params.signal);
+          const page = await pdf.getPage(number);
+          const embedded = await readPdfPageLines(page);
+          if (embedded.length) embeddedPages++;
+          const needsOcr = !embedded.length || await pdfPageContainsRaster(page);
+          if (!needsOcr) lines.push(...embedded);
+          else {
+            ocrPages++;
+            if (!this.provider) throw new LocalDocumentError('OCR_PROVIDER_UNAVAILABLE', 'Rozpoznawanie skanów PDF wymaga lokalnego środowiska przeglądarki.');
+            params.onProgress?.({ phase: 'ocr', progress: number / pdf.numPages, message: `Lokalny OCR: strona ${number} z ${pdf.numPages}…` });
+            const recognized = await this.provider.recognize({ bytes: await pdfPageAsPng(page, params.signal), fileName: 'page.png', mimeType: 'image/png', signal: params.signal, onProgress: params.onProgress });
+            const pageLines = recognized.lines?.length ? recognized.lines : makeLines(recognized.text.trim(), 1, recognized.confidence);
+            const recognizedLines = pageLines.map((line, index) => ({ ...line, pageNumber: number, lineIndex: index + 1, confidence: line.confidence ?? recognized.confidence ?? 70, bounds: line.bounds }));
+            lines.push(...mergePdfPageLines(embedded, recognizedLines, number));
+            if (!recognized.text.trim()) warnings.push(`Na stronie ${number} nie rozpoznano tekstu. Sprawdź oryginał.`);
+          }
+          page.cleanup();
+        }
+        const text = Array.from({ length: pdf.numPages }, (_, index) => lines.filter((line) => line.pageNumber === index + 1).map((line) => line.text).join('\n')).join('\n\f\n').trim();
+        const method = !ocrPages ? 'pdf-text' : embeddedPages ? 'pdf-mixed' : 'ocr';
+        const result = buildResult(text, sourceSha256, method, pdf.numPages, undefined, 'pol', warnings);
+        result.lines = lines;
+        result.averageConfidence = lines.length ? Math.round(lines.reduce((sum, line) => sum + line.confidence, 0) / lines.length) : 0;
+        result.isDegradedQuality = result.averageConfidence < 75 || warnings.length > 0;
+        params.onProgress?.({ phase: 'complete', progress: 1, message: 'Lokalny odczyt PDF zakończony.' });
+        return result;
+      } catch (error) {
+        throwIfAborted(params.signal);
+        if (error instanceof LocalDocumentError) throw error;
+        throw new LocalDocumentError('MALFORMED_DOCUMENT', 'Nie udało się odczytać strony PDF lokalnie. Oryginał jest zachowany.');
+      } finally { await pdf.dispose(); }
     }
     if (ext === 'doc' || mime === 'application/msword') {
       throw new LocalDocumentError('UNSUPPORTED_FORMAT', 'Stary format DOC można przechować i pobrać, ale lokalny parser nie odczytuje jego treści. Zapisz dokument jako DOCX, PDF, RTF lub TXT.');
@@ -220,12 +267,14 @@ export class LocalOcrEngine {
 
     throwIfAborted(params.signal);
     params.onProgress?.({ phase: 'ocr', progress: 0.35, message: 'Rozpoznawanie tekstu lokalnie…' });
-    const recognized = await this.provider.recognize({ bytes, fileName: params.fileName, mimeType: mime, signal: params.signal, onProgress: params.onProgress });
+    let recognized: LocalOcrProviderResult;
+    try { recognized = await this.provider.recognize({ bytes, fileName: params.fileName, mimeType: mime, signal: params.signal, onProgress: params.onProgress }); }
+    catch { throwIfAborted(params.signal); throw new LocalDocumentError('MALFORMED_DOCUMENT', 'Lokalny OCR nie może odczytać obrazu. Sprawdź format i kompletność pliku.'); }
     throwIfAborted(params.signal);
     params.onProgress?.({ phase: 'complete', progress: 1, message: 'Lokalne rozpoznawanie zakończone.' });
     const text = recognized.text.trim();
     const result = buildResult(text, sourceSha256, 'ocr', pageCount, recognized.confidence, recognized.detectedLanguage || 'pol', text ? [] : ['OCR nie rozpoznał tekstu.']);
-    if (recognized.lines?.length) result.lines = recognized.lines.map((line, index) => ({ pageNumber: line.pageNumber || 1, lineIndex: index + 1, text: line.text, confidence: line.confidence ?? recognized.confidence ?? 70 }));
+    if (recognized.lines?.length) result.lines = recognized.lines.map((line, index) => ({ pageNumber: line.pageNumber || 1, lineIndex: index + 1, text: line.text, confidence: line.confidence ?? recognized.confidence ?? 70, bounds: line.bounds }));
     return result;
   }
 
@@ -234,15 +283,19 @@ export class LocalOcrEngine {
     return this.processDocument(params);
   }
 
-  public createOcrVersion(doc: DocumentRecord, ocrResult: OcrResult, versionNumber: number): DocumentVersion {
+  public async createOcrVersion(doc: DocumentRecord, ocrResult: OcrResult, versionNumber: number): Promise<DocumentVersion> {
     return {
       id: `ver-${doc.id}-ocr-v${versionNumber}`,
       documentId: doc.id,
       versionNumber,
       parentVersionId: doc.activeVersionId,
       kind: 'ocr_extracted',
-      contentSha256: ocrResult.sourceSha256,
+      contentSha256: await computeSha256(ocrResult.fullText),
+      sourceOriginalSha256: ocrResult.sourceSha256,
       textPayload: ocrResult.fullText,
+      pageCount: ocrResult.pageCount,
+      sourceLines: ocrResult.lines,
+      extractionMethod: ocrResult.extractionMethod,
       createdAt: new Date().toISOString(),
       toolOrAuthor: `Lokalny silnik (${ocrResult.extractionMethod || 'OCR'}, jakość: ${ocrResult.averageConfidence}%)`,
     };

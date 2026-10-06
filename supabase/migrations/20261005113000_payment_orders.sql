@@ -8,4 +8,5 @@ create table if not exists public.payment_orders (
 create index if not exists payment_orders_user_id_idx on public.payment_orders(user_id);
 create index if not exists payment_orders_status_idx on public.payment_orders(status);
 alter table public.payment_orders enable row level security;
-revoke all on table public.payment_orders from anon, authenticated;
+revoke all on table public.payment_orders from public, anon, authenticated;
+grant select, insert, update, delete on table public.payment_orders to service_role;

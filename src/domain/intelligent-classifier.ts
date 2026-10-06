@@ -10,12 +10,14 @@
  * - Asks one simple question when ambiguous.
  */
 
-import { Case, CaseSubfolder, DocumentRecord, DocumentRelation, InboxProposal, RelationType, getCaseInstitutions } from './types';
+import { Case, CaseSubfolder, DocumentRecord, DocumentRelation, InboxProposal, getCaseInstitutions } from './types';
 
 export interface ClassificationContext {
   cases: Case[];
   existingDocuments: DocumentRecord[];
   relations: DocumentRelation[];
+  /** Niepotwierdzona notatka użytkownika, oddzielona od treści dowodu. */
+  userContext?: string;
 }
 
 export interface ClassificationResult {
@@ -138,6 +140,22 @@ export class IntelligentClassifier {
       confidence = Math.max(confidence, strongest.score);
       rationale = `Dokument pasuje do kilku spraw: ${similarlyStrong.map((candidate) => `„${candidate.caseRecord.title}”`).join(', ')}. Wybierz właściwą sprawę.`;
       clarificationQuestion = 'Dokument pasuje do kilku spraw. Do której sprawy go przypisać?';
+    }
+
+    // Notatka może pomóc wybrać sprawę, ale nie ustanawia rodzaju dowodu,
+    // nie tworzy relacji potwierdzenia i nie zmienia dat z dokumentu.
+    if (!matchedCase && candidateMatches.length === 0 && context.userContext?.trim()) {
+      const note = context.userContext.toLowerCase();
+      const noteCases = context.cases.filter((caseRecord) =>
+        note.includes(caseRecord.id.toLowerCase()) ||
+        note.includes(caseRecord.title.toLowerCase()) ||
+        getCaseInstitutions(caseRecord).some((institution) => institution.name.trim().length > 3 && note.includes(institution.name.toLowerCase()))
+      );
+      if (noteCases.length === 1) {
+        matchedCase = noteCases[0];
+        confidence = 0.6;
+        rationale = `Twoja niepotwierdzona notatka wskazuje sprawę „${matchedCase.title}”. Potwierdź przypisanie; treść dokumentu go jeszcze nie potwierdza.`;
+      }
     }
 
     // 4. Jeśli pewność jest niska, sformułuj proste pytanie

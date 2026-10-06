@@ -31,7 +31,7 @@ export interface BuildCaseAnalysisInput {
 }
 
 export function buildCompleteCaseAnalysis(input: BuildCaseAnalysisInput): LegalAnalysis {
-  const { caseRecord, documents, extractedFields, events, deadlines, legalSources = [] } = input;
+  const { caseRecord, documents, extractedFields, deadlines, legalSources = [] } = input;
   const institutions = getCaseInstitutions(caseRecord);
   const institutionNames = institutions.map((institution) => institution.name).join(', ');
 

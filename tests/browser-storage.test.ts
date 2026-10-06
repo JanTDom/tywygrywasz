@@ -5,6 +5,9 @@ import {
   EncryptedBrowserDocumentStorage,
   MemoryEncryptedDocumentStorageBackend,
   MemoryDocumentStorageBackend,
+  createOwnedDocumentStorage,
+  markOwnedDocumentStorageInitialized,
+  openOwnedDocumentStorage,
   validateBrowserDocumentInput,
 } from '../src/domain/browser-storage';
 import { computeSha256, generateVaultKey } from '../src/domain/crypto';
@@ -90,7 +93,148 @@ describe('BrowserDocumentStorage', () => {
   });
 });
 
+describe('magazyn oryginałów oddzielony według właściciela', () => {
+  function namespaces() {
+    const backends = new Map<string, MemoryEncryptedDocumentStorageBackend>();
+    const markers = new Map<string, string>();
+    const backendFactory = (name: string) => {
+      if (!backends.has(name)) backends.set(name, new MemoryEncryptedDocumentStorageBackend());
+      return backends.get(name)!;
+    };
+    const migrationMarkers = { getItem: (name: string) => markers.get(name) ?? null, setItem: (name: string, value: string) => { markers.set(name, value); } };
+    return { backends, markers, backendFactory, migrationMarkers };
+  }
+
+  it('restore konta B z tym samym vaultId i innym kluczem nie zastępuje oryginałów A', async () => {
+    const injected = namespaces();
+    const vaultId = 'shared-technical-id';
+    const ownerA = createOwnedDocumentStorage({ ...injected, ownerId: 'user-A', vaultId, vaultKey: generateVaultKey() });
+    const keyB = generateVaultKey();
+    const ownerB = createOwnedDocumentStorage({ ...injected, ownerId: 'user-B', vaultId, vaultKey: keyB });
+    const originalA = new TextEncoder().encode('ORYGINAL_A_CANARY');
+    const originalB = new TextEncoder().encode('ODTWORZONY_B_CANARY');
+    await ownerA.putDocument({ documentId: 'doc-same-id', originalFileName: 'poufna-nazwa-A.txt', bytes: originalA });
+    const portableSource = new EncryptedBrowserDocumentStorage({ vaultId, vaultKey: keyB, backend: new MemoryEncryptedDocumentStorageBackend() });
+    await portableSource.putDocument({ documentId: 'doc-same-id', originalFileName: 'odtworzony-B.txt', bytes: originalB });
+    await ownerB.importEncryptedSnapshot(await portableSource.exportEncryptedSnapshot(), { replaceExisting: true });
+    expect(await ownerA.getBytes('doc-same-id')).toEqual(originalA);
+    expect(await ownerB.getBytes('doc-same-id')).toEqual(originalB);
+    expect(injected.backends.size).toBe(2);
+    expect([...injected.backends.keys()].join(' ')).not.toContain('poufna-nazwa');
+  });
+
+  it('jednoznacznie rozdziela pary technicznych ID zawierające separator', async () => {
+    const injected = namespaces();
+    const first = createOwnedDocumentStorage({ ...injected, ownerId: 'user-a-b', vaultId: 'c', vaultKey: generateVaultKey() });
+    const second = createOwnedDocumentStorage({ ...injected, ownerId: 'user-a', vaultId: 'b-c', vaultKey: generateVaultKey() });
+    await first.putDocument({ documentId: 'doc-1', originalFileName: 'synthetic.txt', bytes: new Uint8Array([1]) });
+    expect(await second.count()).toBe(0);
+    expect(injected.backends.size).toBe(2);
+    expect(() => createOwnedDocumentStorage({ ...injected, ownerId: 'email@example.test', vaultId: 'c' })).toThrow('technicznego identyfikatora');
+  });
+
+  it('migruje istniejący lokalny magazyn raz i zachowuje stare szyfrogramy bez usuwania', async () => {
+    const injected = namespaces();
+    const key = generateVaultKey();
+    const legacyBackend = new MemoryEncryptedDocumentStorageBackend();
+    const legacy = new EncryptedBrowserDocumentStorage({ vaultId: 'existing-local', vaultKey: key, backend: legacyBackend });
+    const bytes = new TextEncoder().encode('LOKALNY_CANARY');
+    await legacy.putDocument({ documentId: 'doc-old', originalFileName: 'prywatny-dowod.txt', bytes });
+    const originalSnapshot = await legacy.exportEncryptedSnapshot();
+    const options = { ...injected, ownerId: 'local', vaultId: 'existing-local', vaultKey: key, legacyBackend };
+    const owned = await openOwnedDocumentStorage(options);
+    expect(await owned.getBytes('doc-old')).toEqual(bytes);
+    expect(await owned.exportEncryptedSnapshot()).toEqual(originalSnapshot);
+    expect(await legacy.exportEncryptedSnapshot()).toEqual(originalSnapshot);
+    const markerContent = JSON.stringify([...injected.markers]);
+    expect(markerContent).not.toContain('prywatny-dowod.txt');
+    expect(markerContent).not.toContain('LOKALNY_CANARY');
+    expect(markerContent).not.toContain((await legacy.getMetadata('doc-old'))!.sha256);
+    await owned.deleteDocument('doc-old');
+    expect(await (await openOwnedDocumentStorage(options)).count()).toBe(0);
+    expect(await legacy.count()).toBe(1);
+  });
+
+  it('zachowuje poprawną składnię uszkodzonego szyfrogramu i pomija uszkodzone wpisy, nie blokując unlock', async () => {
+    const injected = namespaces();
+    const key = generateVaultKey();
+    const legacyBackend = new MemoryEncryptedDocumentStorageBackend();
+    const legacy = new EncryptedBrowserDocumentStorage({ vaultId: 'damaged-legacy', vaultKey: key, backend: legacyBackend });
+    await legacy.putDocument({ documentId: 'doc-good', originalFileName: 'dobry.txt', bytes: new Uint8Array([1, 2]) });
+    await legacy.putDocument({ documentId: 'doc-bad', originalFileName: 'uszkodzony.txt', bytes: new Uint8Array([3]) });
+    const bad = (await legacyBackend.get('doc-bad'))!;
+    const changed = (Number.parseInt(bad.encryptedPayload.ciphertextHex.slice(-2), 16) ^ 1).toString(16).padStart(2, '0');
+    await legacyBackend.put({ ...bad, encryptedPayload: { ...bad.encryptedPayload, ciphertextHex: bad.encryptedPayload.ciphertextHex.slice(0, -2) + changed } });
+    const readRaw = legacyBackend.listRaw.bind(legacyBackend);
+    legacyBackend.listRaw = async () => [...await readRaw(), { documentId: 'doc-invalid', encryptedPayload: null }, null];
+    const owned = await openOwnedDocumentStorage({ ...injected, ownerId: 'local', vaultId: 'damaged-legacy', vaultKey: key, legacyBackend });
+    expect(await owned.count()).toBe(2);
+    expect(await owned.getBytes('doc-good')).toEqual(new Uint8Array([1, 2]));
+    await expect(owned.getBytes('doc-bad')).rejects.toThrow('odszyfrować');
+    expect(await legacy.count()).toBe(2);
+  });
+
+  it('błąd odczytu legacy nie blokuje magazynu i pozwala ponowić migrację', async () => {
+    const injected = namespaces();
+    const key = generateVaultKey();
+    const legacyBackend = new MemoryEncryptedDocumentStorageBackend();
+    const legacy = new EncryptedBrowserDocumentStorage({ vaultId: 'retry-legacy', vaultKey: key, backend: legacyBackend });
+    await legacy.putDocument({ documentId: 'doc-retry', originalFileName: 'synthetic.txt', bytes: new Uint8Array([7]) });
+    const readRaw = legacyBackend.listRaw.bind(legacyBackend);
+    legacyBackend.listRaw = async () => { throw new Error('Synthetic blocked legacy'); };
+    const options = { ...injected, ownerId: 'local', vaultId: 'retry-legacy', vaultKey: key, legacyBackend };
+    expect(await (await openOwnedDocumentStorage(options)).count()).toBe(0);
+    expect(injected.markers.size).toBe(0);
+    legacyBackend.listRaw = readRaw;
+    expect(await (await openOwnedDocumentStorage(options)).getBytes('doc-retry')).toEqual(new Uint8Array([7]));
+  });
+
+  it('odmowa zapisu znacznika nie blokuje unlock, lecz jawny restore otrzymuje błąd do rollback', async () => {
+    const injected = namespaces();
+    const migrationMarkers = { getItem: () => null, setItem: () => { throw new Error('Synthetic marker quota'); } };
+    const options = { ...injected, migrationMarkers, ownerId: 'local', vaultId: 'marker-failure', vaultKey: generateVaultKey() };
+    await expect(openOwnedDocumentStorage(options)).resolves.toBeInstanceOf(EncryptedBrowserDocumentStorage);
+    expect(() => markOwnedDocumentStorageInitialized(options)).toThrow('znacznika odtworzenia');
+  });
+
+  it('nie nadpisuje wypełnionego namespace nawet gdy pojawił się po początkowym sprawdzeniu', async () => {
+    const key = generateVaultKey();
+    const backend = new MemoryEncryptedDocumentStorageBackend();
+    const owned = createOwnedDocumentStorage({ ownerId: 'user-A', vaultId: 'race', vaultKey: key, backend });
+    await owned.putDocument({ documentId: 'doc-current', originalFileName: 'current.txt', bytes: new Uint8Array([8]) });
+    expect(await owned.copyLegacyEncryptedSnapshot({ version: '1.0', vaultId: 'race', records: [] })).toBe(false);
+    expect(await owned.getBytes('doc-current')).toEqual(new Uint8Array([8]));
+  });
+
+  it('pusta kopia przywrócona przez factory nie jest uzupełniana legacy przy następnym unlock', async () => {
+    const injected = namespaces();
+    const key = generateVaultKey();
+    const legacyBackend = new MemoryEncryptedDocumentStorageBackend();
+    const legacy = new EncryptedBrowserDocumentStorage({ vaultId: 'empty-restore', vaultKey: key, backend: legacyBackend });
+    await legacy.putDocument({ documentId: 'doc-old', originalFileName: 'old.txt', bytes: new Uint8Array([9]) });
+    const options = { ...injected, ownerId: 'local', vaultId: 'empty-restore', vaultKey: key, legacyBackend };
+    const restored = createOwnedDocumentStorage(options);
+    await restored.importEncryptedSnapshot({ version: '1.0', vaultId: 'empty-restore', records: [] }, { replaceExisting: true });
+    markOwnedDocumentStorageInitialized(options);
+    expect(await (await openOwnedDocumentStorage(options)).count()).toBe(0);
+    expect(await legacy.count()).toBe(1);
+  });
+});
+
 describe('EncryptedBrowserDocumentStorage', () => {
+  it('naprawia uszkodzony szyfrogram tylko nienaruszonym oryginałem z manifestu', async () => {
+    const backend = new MemoryEncryptedDocumentStorageBackend();
+    const storage = new EncryptedBrowserDocumentStorage({ vaultId: 'repair', vaultKey: generateVaultKey(), backend });
+    const bytes = new TextEncoder().encode('dowód oryginalny');
+    const metadata = await storage.putDocument({ documentId: 'doc-repair', originalFileName: 'dowod.txt', bytes });
+    const record = (await backend.get('doc-repair'))!;
+    await backend.put({ ...record, encryptedPayload: { ...record.encryptedPayload, ciphertextHex: '00'.repeat(record.encryptedPayload.ciphertextHex.length / 2) } });
+    await expect(storage.getBytes('doc-repair')).rejects.toThrow();
+    const expected = { sha256: metadata.sha256, size: metadata.size };
+    await expect(storage.relinkOriginal({ documentId: 'doc-repair', originalFileName: 'dowod.txt', bytes: new TextEncoder().encode('inne bajty') }, expected)).rejects.toThrow('inne bajty');
+    await storage.relinkOriginal({ documentId: 'doc-repair', originalFileName: 'dowod.txt', bytes }, expected);
+    expect(await storage.getBytes('doc-repair')).toEqual(bytes);
+  });
   it('przechowuje wyłącznie szyfrogram, odtwarza bajty i metadane po odblokowaniu', async () => {
     const backend = new MemoryEncryptedDocumentStorageBackend();
     const vaultKey = generateVaultKey();

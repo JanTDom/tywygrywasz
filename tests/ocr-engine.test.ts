@@ -56,7 +56,7 @@ describe('LocalOcrEngine', () => {
       rawPayload: 'Treść odczytana z dokumentu',
     });
 
-    const newVersion: DocumentVersion = engine.createOcrVersion(doc, ocrResult, 2);
+    const newVersion: DocumentVersion = await engine.createOcrVersion(doc, ocrResult, 2);
 
     expect(newVersion.id).toBe('ver-doc-scan-01-ocr-v2');
     expect(newVersion.documentId).toBe('doc-scan-01');
@@ -65,5 +65,7 @@ describe('LocalOcrEngine', () => {
     expect(newVersion.textPayload).toBe('Treść odczytana z dokumentu');
     // Oryginał pozostaje nienaruszony (inny identyfikator niż ver-orig-01)
     expect(newVersion.id).not.toBe(doc.activeVersionId);
+    expect(newVersion.contentSha256).not.toBe(doc.originalSha256);
+    expect(newVersion.sourceOriginalSha256).toBe(ocrResult.sourceSha256);
   });
 });

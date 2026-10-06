@@ -3,11 +3,8 @@
 import React, { useState } from 'react';
 import {
   BookOpen,
-  Scale,
   ShieldCheck,
   ExternalLink,
-  AlertTriangle,
-  FileText,
   Search,
   CheckCircle2,
 } from 'lucide-react';

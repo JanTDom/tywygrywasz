@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Check, CreditCard, FileCheck2, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
+import { Check, CreditCard, LockKeyhole, ShieldCheck, Sparkles } from 'lucide-react';
 import { formatGrossPrice, normalizePublicCommerceConfig, type PublicCommerceConfig } from '@/domain/commerce-config';
 
 type Profile = { id: string; name: string; email: string };

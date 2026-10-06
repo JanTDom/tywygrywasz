@@ -1,19 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   FileText,
-  ShieldCheck,
-  CheckCircle2,
-  AlertTriangle,
   Eye,
   Edit3,
   Save,
   Check,
-  RotateCcw,
   Sparkles,
 } from 'lucide-react';
 import { DocumentRecord, DocumentVersion, ExtractedField } from '../../domain/types';
+import { OriginalDocumentPreview } from './OriginalDocumentPreview';
 
 interface SideBySideViewerProps {
   document: DocumentRecord;
@@ -22,6 +19,7 @@ interface SideBySideViewerProps {
   extractedFields: ExtractedField[];
   onSaveCorrection: (correctedText: string, note: string) => Promise<void>;
   onConfirmField: (fieldId: string, confirmedValue: string) => void;
+  onLoadOriginal?: (documentId: string) => Promise<Uint8Array | null>;
 }
 
 export function SideBySideViewer({
@@ -31,12 +29,15 @@ export function SideBySideViewer({
   extractedFields,
   onSaveCorrection,
   onConfirmField,
+  onLoadOriginal,
 }: SideBySideViewerProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [correctedText, setCorrectedText] = useState(activeVersion.textPayload || '');
   const [correctionNote, setCorrectionNote] = useState('Korekta literówek i formatowania OCR');
   const [isSaving, setIsSaving] = useState(false);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  useEffect(() => { setCorrectedText(activeVersion.textPayload || ''); }, [activeVersion.id, activeVersion.textPayload]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -106,13 +107,13 @@ export function SideBySideViewer({
               <FileText className="w-3.5 h-3.5 text-slate-500" />
               <span>Nienaruszalny oryginał (v{originalVersion.versionNumber})</span>
             </span>
-            <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-semibold">
-              Kopia z dysku (integralna)
+            <span className="text-[10px] font-mono text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full font-semibold">
+              Bajty lokalnego sejfu
             </span>
           </div>
 
-          <div className="flex-1 bg-white border border-slate-200 rounded-xl p-4 font-mono text-xs text-slate-800 leading-relaxed overflow-y-auto max-h-[460px] whitespace-pre-wrap shadow-inner select-text">
-            {originalVersion.textPayload}
+          <div className="flex-1 overflow-y-auto max-h-[620px]">
+            <OriginalDocumentPreview document={document} onLoadOriginal={onLoadOriginal} sourceField={extractedFields.find((field) => field.id === selectedFieldId)} />
           </div>
         </div>
 
@@ -167,9 +168,10 @@ export function SideBySideViewer({
                         key={f.id}
                         className="flex items-center justify-between text-xs p-2 bg-white rounded-lg border border-slate-200"
                       >
-                        <div>
-                          <span className="font-semibold text-slate-800">{f.fieldName}: </span>
-                          <span className="font-mono text-slate-900">{f.parsedValue || f.rawValue}</span>
+                        <div className="min-w-0 flex-1 pr-2">
+                          <span className="font-semibold text-slate-800">{f.label}: </span>
+                          {f.status === 'confirmed' ? <span className="font-mono text-slate-900">{f.parsedValue || f.rawValue}</span> : <input aria-label={`Wartość pola: ${f.label}`} value={fieldValues[f.id] ?? f.parsedValue ?? f.rawValue} onChange={(event) => setFieldValues((values) => ({ ...values, [f.id]: event.target.value }))} placeholder="Brak danych — uzupełnij na podstawie dowodu" className="mt-1 w-full rounded border border-slate-200 px-2 py-1 text-xs" />}
+                          {f.pageNumber > 0 ? <button type="button" onClick={() => setSelectedFieldId(f.id)} className="mt-1 text-[10px] font-semibold text-indigo-700">Pokaż źródło · strona {f.pageNumber}</button> : <p className="mt-1 text-[10px] text-slate-500">Brak zlokalizowanego źródła</p>}
                         </div>
                         {f.status === 'confirmed' ? (
                           <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -179,8 +181,9 @@ export function SideBySideViewer({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => onConfirmField(f.id, f.parsedValue || f.rawValue)}
-                            className="text-[10px] font-semibold bg-slate-900 text-white px-2 py-0.5 rounded hover:bg-slate-800"
+                            disabled={!(fieldValues[f.id] ?? f.parsedValue ?? f.rawValue).trim()}
+                            onClick={() => onConfirmField(f.id, (fieldValues[f.id] ?? f.parsedValue ?? f.rawValue).trim())}
+                            className="text-[10px] font-semibold bg-slate-900 text-white px-2 py-0.5 rounded hover:bg-slate-800 disabled:opacity-40"
                           >
                             Zatwierdź
                           </button>

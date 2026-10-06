@@ -9,7 +9,7 @@
  * - Missing values (e.g. delivery date) remain 'unknown'.
  */
 
-import { ExtractedField, ExtractedFieldName } from './types';
+import { ExtractedField, DocumentSourceLine } from './types';
 
 export interface ExtractionResult {
   fields: ExtractedField[];
@@ -21,6 +21,7 @@ export function extractFieldsFromText(params: {
   documentId: string;
   versionId: string;
   text: string;
+  sourceLines?: DocumentSourceLine[];
 }): ExtractionResult {
   const { documentId, versionId, text } = params;
   const fields: ExtractedField[] = [];
@@ -203,5 +204,24 @@ export function extractFieldsFromText(params: {
     }
   }
 
+  // An actual parser/OCR source map takes precedence over any text heuristic.
+  // Unknown fields have no located source. Plain text without a physical page
+  // map retains page 1, while multi-page PDFs never fall back to a guessed page.
+  for (const field of fields) {
+    if (field.status === 'unknown') { field.pageNumber = 0; continue; }
+    if (!params.sourceLines) continue;
+    const value = field.rawValue.trim();
+    const firstLine = value.split(/\r?\n/)[0];
+    const normalized = (input: string) => input.replace(/\s+/g, ' ').trim().toLocaleLowerCase('pl');
+    const source = params.sourceLines.find((line) => normalized(line.text).includes(normalized(firstLine)));
+    if (source) {
+      field.pageNumber = source.pageNumber;
+      field.sourceBounds = source.bounds;
+      field.ocrConfidence = source.confidence / 100;
+    } else {
+      field.pageNumber = 0;
+      warnings.push(`Pole „${field.label}” wymaga ręcznego wskazania miejsca w oryginale.`);
+    }
+  }
   return { fields, warnings, hasPromptInjectionAttempt };
 }

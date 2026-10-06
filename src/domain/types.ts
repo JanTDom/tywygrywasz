@@ -138,7 +138,8 @@ export type DocumentOrigin =
   | 'photo'
   | 'citizen_draft'
   | 'official_upo'
-  | 'disk_file';
+  | 'disk_file'
+  | 'local_derivative';
 
 export type CaseSubfolder =
   | '00_Plan_i_opis'
@@ -154,8 +155,17 @@ export type CaseSubfolder =
 export interface DocumentRecord {
   id: string;
   caseIds: string[];
+  /** Pochodna zachowuje dokument, wersję i zakres stron źródłowych. */
+  sourceDocumentId?: string;
+  sourceVersionId?: string;
+  sourcePageRange?: { start: number; end: number };
   /** Instytucje, których dotyczy korespondencja lub dowód. */
   institutionIds?: string[];
+  /**
+   * Krótki opis użytkownika zapisany poza treścią i wersjami dokumentu.
+   * Jest to kontekst/notatka robocza, a nie potwierdzony fakt z dokumentu.
+   */
+  contextNote?: string;
   type: DocumentType;
   direction: CorrespondenceDirection;
   origin: DocumentOrigin;
@@ -190,6 +200,26 @@ export interface DocumentVersion {
   createdAt: string;
   toolOrAuthor: string;
   pageRange?: { start: number; end: number };
+  pageCount?: number;
+  extractionMethod?: 'text' | 'rtf' | 'pdf-text' | 'ocr' | 'pdf-mixed';
+  sourceLines?: DocumentSourceLine[];
+  sourceOriginalSha256?: string;
+}
+
+/** Coordinates relative to the visible page, with a top-left origin. */
+export interface SourceBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DocumentSourceLine {
+  pageNumber: number;
+  lineIndex: number;
+  text: string;
+  confidence: number;
+  bounds?: SourceBounds;
 }
 
 export type RelationType =
@@ -241,6 +271,7 @@ export interface ExtractedField {
   confirmedBy?: string;
   confirmedAt?: string;
   disputeReason?: string;
+  sourceBounds?: SourceBounds;
 }
 
 export type EventType =
@@ -430,6 +461,11 @@ export interface LetterDraft {
   caseId: string;
   title: string;
   letterType: LetterType;
+  /**
+   * Wskazówki użytkownika dla pracy nad projektem. Nie są automatycznie
+   * wstawiane do treści eksportowanego pisma.
+   */
+  draftingNotes?: string;
   recipient: {
     name: string;
     addressOrChannel: string;
@@ -551,6 +587,10 @@ function isStringArray(value: unknown): value is string[] {
   return isBoundedArray(value) && value.every((entry) => typeof entry === 'string');
 }
 
+function isOptionalBoundedString(value: unknown, maxLength: number): boolean {
+  return value === undefined || (typeof value === 'string' && value.length <= maxLength);
+}
+
 /** Minimal schema guard used before restoring a decrypted backup. */
 export function isVaultManifest(value: unknown): value is VaultManifest {
   if (!isManifestRecord(value)) return false;
@@ -590,13 +630,15 @@ export function isVaultManifest(value: unknown): value is VaultManifest {
     typeof entry.originalFileName === 'string' &&
     typeof entry.mimeType === 'string' &&
     typeof entry.activeVersionId === 'string' &&
-    isStringArray(entry.caseIds)
+    isStringArray(entry.caseIds) &&
+    isOptionalBoundedString(entry.contextNote, 2_000)
   ))) return false;
   if (!(value.documentVersions as Record<string, unknown>[]).every((entry) => (
     typeof entry.documentId === 'string' &&
     typeof entry.contentSha256 === 'string' &&
     (entry.textPayload === undefined || typeof entry.textPayload === 'string')
   ))) return false;
+  if (!(value.letters as Record<string, unknown>[]).every((entry) => isOptionalBoundedString(entry.draftingNotes, 4_000))) return false;
 
   // These collections were added after the first backup format. Missing
   // values are normalized by LocalVault.restoreFromEncryptedBackup().

@@ -26,6 +26,8 @@ type UserRecord = {
   passwordHash: string;
   passwordSalt: string;
   createdAt: string;
+  emailVerifiedAt: string | null;
+  credentialVersion: number;
 };
 
 type SessionRecord = {
@@ -43,6 +45,8 @@ type DurableUserRow = {
   password_hash: string;
   password_salt: string;
   created_at: string;
+  email_verified_at: string | null;
+  credential_version: number;
 };
 
 type DurableSessionRow = {
@@ -52,7 +56,7 @@ type DurableSessionRow = {
   created_at: string;
 };
 
-export type PublicUser = Pick<UserRecord, 'id' | 'name' | 'email' | 'createdAt'>;
+export type PublicUser = Pick<UserRecord, 'id' | 'name' | 'email' | 'createdAt' | 'emailVerifiedAt' | 'credentialVersion'> & { emailVerified: boolean };
 
 /**
  * Local fallback used by tests and the offline development server. When both
@@ -62,6 +66,9 @@ export type PublicUser = Pick<UserRecord, 'id' | 'name' | 'email' | 'createdAt'>
 const usersByEmail = new Map<string, UserRecord>();
 const usersById = new Map<string, UserRecord>();
 const sessionsByTokenHash = new Map<string, SessionRecord>();
+export type AccountTokenPurpose = 'verify_email' | 'reset_password';
+type AccountTokenRecord = { tokenHash: string; userId: string; purpose: AccountTokenPurpose; expiresAt: number; createdAt: number };
+const accountTokensByHash = new Map<string, AccountTokenRecord>();
 let supabaseAdmin: SupabaseClient | null | undefined;
 
 function normalizeEmail(email: string): string {
@@ -69,11 +76,11 @@ function normalizeEmail(email: string): string {
 }
 
 function publicUser(user: UserRecord): PublicUser {
-  return { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt };
+  return { id: user.id, name: user.name, email: user.email, createdAt: user.createdAt, emailVerifiedAt: user.emailVerifiedAt, emailVerified: Boolean(user.emailVerifiedAt), credentialVersion: user.credentialVersion };
 }
 
 function userFromRow(row: DurableUserRow): PublicUser {
-  return { id: row.id, name: row.name, email: row.email, createdAt: row.created_at };
+  return { id: row.id, name: row.name, email: row.email, createdAt: row.created_at, emailVerifiedAt: row.email_verified_at ?? null, emailVerified: Boolean(row.email_verified_at), credentialVersion: row.credential_version ?? 0 };
 }
 
 function sha256(value: string): string {
@@ -81,10 +88,12 @@ function sha256(value: string): string {
 }
 
 function durableClient(): SupabaseClient | null {
+  if (process.env.NODE_ENV === 'production' && !hasDurableAuthStorage()) throw new Error('Magazyn kont nie jest skonfigurowany.');
   if (supabaseAdmin !== undefined) return supabaseAdmin;
   const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) {
+    if (process.env.NODE_ENV === 'production') throw new Error('Magazyn kont nie jest skonfigurowany.');
     supabaseAdmin = null;
     return supabaseAdmin;
   }
@@ -142,7 +151,7 @@ export async function createUser(input: { name: string; email: string; password:
       password_hash: passwordHash.toString('hex'),
       password_salt: salt.toString('hex'),
       created_at: now,
-    }).select('id,name,email,created_at').single();
+    }).select('id,name,email,created_at,email_verified_at,credential_version').single();
     if (error) {
       if (error.code === '23505') throw new Error('Konto z tym adresem e-mail już istnieje.');
       throw new Error('Nie udało się zapisać konta.');
@@ -159,6 +168,8 @@ export async function createUser(input: { name: string; email: string; password:
     passwordHash: passwordHash.toString('hex'),
     passwordSalt: salt.toString('hex'),
     createdAt: now,
+    emailVerifiedAt: null,
+    credentialVersion: 0,
   };
   usersByEmail.set(emailNormalized, user);
   usersById.set(id, user);
@@ -166,10 +177,11 @@ export async function createUser(input: { name: string; email: string; password:
 }
 
 export async function verifyCredentials(email: string, password: string): Promise<PublicUser | null> {
+  if (password.length > 128 || email.length > 254) return null;
   const db = durableClient();
   if (db) {
     const { data, error } = await db.from('app_users')
-      .select('id,name,email,email_normalized,password_hash,password_salt,created_at')
+      .select('id,name,email,email_normalized,password_hash,password_salt,created_at,email_verified_at,credential_version')
       .eq('email_normalized', normalizeEmail(email))
       .maybeSingle();
     if (error || !data) return null;
@@ -182,9 +194,10 @@ export async function verifyCredentials(email: string, password: string): Promis
 
   const user = usersByEmail.get(normalizeEmail(email));
   if (!user) return null;
+  const expectedVersion = user.credentialVersion;
   const expected = Buffer.from(user.passwordHash, 'hex');
   const actual = await derivePasswordHash(password, Buffer.from(user.passwordSalt, 'hex'));
-  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+  if (user.credentialVersion !== expectedVersion || expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
   return publicUser(user);
 }
 
@@ -199,7 +212,7 @@ export function safeEqualStrings(left: string | undefined, right: string | undef
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export async function createSession(userId: string): Promise<string> {
+export async function createSession(userId: string, expectedCredentialVersion?: number): Promise<string> {
   const token = randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
   const tokenHash = sha256(token);
   const now = new Date();
@@ -207,17 +220,18 @@ export async function createSession(userId: string): Promise<string> {
   const db = durableClient();
 
   if (db) {
-    const { error } = await db.from('app_sessions').insert({
-      user_id: userId,
-      token_hash: tokenHash,
-      expires_at: new Date(expiresAt).toISOString(),
-      created_at: now.toISOString(),
+    const { data, error } = await db.rpc('create_app_session', {
+      p_user_id: userId,
+      p_token_hash: tokenHash,
+      p_expires_at: new Date(expiresAt).toISOString(),
+      p_expected_credential_version: expectedCredentialVersion ?? null,
     });
-    if (error) throw new Error('Nie udało się utworzyć sesji.');
+    if (error || !data) throw new Error('Nie udało się utworzyć sesji.');
     return token;
   }
 
-  if (!usersById.has(userId)) throw new Error('Nie można utworzyć sesji dla nieistniejącego konta.');
+  const storedUser = usersById.get(userId);
+  if (!storedUser || (expectedCredentialVersion !== undefined && storedUser.credentialVersion !== expectedCredentialVersion)) throw new Error('Nie udało się utworzyć sesji. Zaloguj się ponownie.');
   sessionsByTokenHash.set(tokenHash, { userId, tokenHash, expiresAt, createdAt: now.toISOString() });
   return token;
 }
@@ -227,7 +241,8 @@ export async function revokeSession(token: string | undefined): Promise<void> {
   const tokenHash = sha256(token);
   const db = durableClient();
   if (db) {
-    await db.from('app_sessions').delete().eq('token_hash', tokenHash);
+    const { error } = await db.from('app_sessions').delete().eq('token_hash', tokenHash);
+    if (error) throw new Error('Nie udało się unieważnić sesji.');
     return;
   }
   sessionsByTokenHash.delete(tokenHash);
@@ -250,7 +265,7 @@ export async function getUserBySessionToken(token: string | undefined): Promise<
       return null;
     }
     const { data: userData, error: userError } = await db.from('app_users')
-      .select('id,name,email,email_normalized,password_hash,password_salt,created_at')
+      .select('id,name,email,email_normalized,password_hash,password_salt,created_at,email_verified_at,credential_version')
       .eq('id', session.user_id)
       .maybeSingle();
     return userError || !userData ? null : userFromRow(userData as DurableUserRow);
@@ -272,7 +287,7 @@ export async function updateUserName(userId: string, name: string): Promise<Publ
   const db = durableClient();
 
   if (db) {
-    const { data, error } = await db.from('app_users').update({ name: cleanName }).eq('id', userId).select('id,name,email,created_at').single();
+    const { data, error } = await db.from('app_users').update({ name: cleanName }).eq('id', userId).select('id,name,email,created_at,email_verified_at,credential_version').single();
     if (error || !data) throw new Error('Konto nie istnieje.');
     return userFromRow(data as DurableUserRow);
   }
@@ -287,4 +302,128 @@ export function clearAuthStoreForTests(): void {
   usersByEmail.clear();
   usersById.clear();
   sessionsByTokenHash.clear();
+  accountTokensByHash.clear();
+  supabaseAdmin = undefined;
+}
+
+/** Only server mail delivery receives the raw secret. The store keeps SHA-256. */
+export async function issueAccountToken(email: string, purpose: AccountTokenPurpose): Promise<{ user: PublicUser; token: string; expiresAt: string } | null> {
+  const db = durableClient();
+  let user: PublicUser | null;
+  if (db) {
+    const { data, error } = await db.from('app_users').select('id,name,email,created_at,email_verified_at,credential_version')
+      .eq('email_normalized', normalizeEmail(email)).maybeSingle();
+    if (error) throw new Error('Nie udało się przygotować operacji konta.');
+    user = data ? userFromRow(data as DurableUserRow) : null;
+  } else {
+    const stored = usersByEmail.get(normalizeEmail(email));
+    user = stored ? publicUser(stored) : null;
+  }
+  if (!user || (purpose === 'verify_email' && user.emailVerified)) return null;
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = sha256(token);
+  const now = Date.now();
+  const expiresAt = new Date(now + (purpose === 'verify_email' ? 24 * 60 * 60 : 30 * 60) * 1000).toISOString();
+  if (db) {
+    const { data, error } = await db.rpc('issue_app_account_token', {
+      p_user_id: user.id, p_purpose: purpose, p_token_hash: tokenHash, p_expires_at: expiresAt,
+    });
+    if (error) throw new Error('Nie udało się przygotować operacji konta.');
+    if (!data) return null; // Durable per-account resend cooldown.
+  } else {
+    for (const record of accountTokensByHash.values()) {
+      if (record.userId === user.id && record.purpose === purpose && now - record.createdAt < 60_000) return null;
+    }
+    for (const [hash, record] of accountTokensByHash) {
+      if (record.userId === user.id && record.purpose === purpose) accountTokensByHash.delete(hash);
+    }
+    accountTokensByHash.set(tokenHash, { tokenHash, userId: user.id, purpose, expiresAt: Date.parse(expiresAt), createdAt: now });
+  }
+  return { user, token, expiresAt };
+}
+
+export async function invalidateAccountToken(token: string): Promise<void> {
+  const db = durableClient();
+  if (db) {
+    const { error } = await db.from('app_account_tokens').delete().eq('token_hash', sha256(token));
+    if (error) throw new Error('Nie udało się unieważnić kodu.');
+  } else accountTokensByHash.delete(sha256(token));
+}
+
+function validateAccountToken(token: string): void {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+}
+
+export async function verifyAccountEmail(userId: string, token: string): Promise<void> {
+  validateAccountToken(token);
+  const db = durableClient();
+  if (db) {
+    const { data, error } = await db.rpc('consume_app_account_token', {
+      p_token_hash: sha256(token), p_purpose: 'verify_email', p_expected_user_id: userId,
+      p_password_hash: null, p_password_salt: null,
+    });
+    if (error || !data) throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+    return;
+  }
+  const tokenHash = sha256(token);
+  const record = accountTokensByHash.get(tokenHash);
+  if (!record || record.userId !== userId || record.purpose !== 'verify_email' || record.expiresAt <= Date.now()) {
+    throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+  }
+  const user = usersById.get(userId);
+  if (!user) throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+  accountTokensByHash.delete(tokenHash);
+  user.emailVerifiedAt = new Date().toISOString();
+}
+
+/** Account recovery never reads/wraps/decrypts a vault key or sync envelope. */
+export async function resetAccountPassword(token: string, password: string): Promise<void> {
+  validateAccountToken(token);
+  if (password.length < 12 || password.length > 128) throw new Error('Hasło musi mieć od 12 do 128 znaków.');
+  const salt = randomBytes(PASSWORD_SALT_BYTES);
+  const passwordHash = (await derivePasswordHash(password, salt)).toString('hex');
+  const db = durableClient();
+  if (db) {
+    const { data, error } = await db.rpc('consume_app_account_token', {
+      p_token_hash: sha256(token), p_purpose: 'reset_password', p_expected_user_id: null,
+      p_password_hash: passwordHash, p_password_salt: salt.toString('hex'),
+    });
+    if (error || !data) throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+    return;
+  }
+  // No await between checking and consuming; local concurrent resets cannot replay.
+  const tokenHash = sha256(token);
+  const record = accountTokensByHash.get(tokenHash);
+  if (!record || record.purpose !== 'reset_password' || record.expiresAt <= Date.now()) {
+    throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+  }
+  const user = usersById.get(record.userId);
+  if (!user) throw new Error('Kod jest nieprawidłowy, wygasł albo został już użyty.');
+  user.passwordHash = passwordHash;
+  user.passwordSalt = salt.toString('hex');
+  user.credentialVersion += 1;
+  // Possession of a reset code confirms access to the email mailbox.
+  user.emailVerifiedAt = user.emailVerifiedAt || new Date().toISOString();
+  for (const [hash, session] of sessionsByTokenHash) if (session.userId === user.id) sessionsByTokenHash.delete(hash);
+  for (const [hash, existing] of accountTokensByHash) if (existing.userId === user.id) accountTokensByHash.delete(hash);
+}
+
+/** Replace every session with one new secret, including the current session. */
+export async function rotateAccountSessions(currentToken: string): Promise<string> {
+  const db = durableClient();
+  const token = randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
+  const now = new Date();
+  const expiresAt = now.getTime() + SESSION_TTL_SECONDS * 1000;
+  if (db) {
+    const { data, error } = await db.rpc('rotate_app_sessions', {
+      p_current_token_hash: sha256(currentToken), p_new_token_hash: sha256(token), p_expires_at: new Date(expiresAt).toISOString(),
+    });
+    if (error || !data) throw new Error('Sesja wygasła. Zaloguj się ponownie.');
+    return token;
+  }
+  const current = sessionsByTokenHash.get(sha256(currentToken));
+  if (!current || current.expiresAt <= Date.now()) throw new Error('Sesja wygasła. Zaloguj się ponownie.');
+  for (const [hash, session] of sessionsByTokenHash) if (session.userId === current.userId) sessionsByTokenHash.delete(hash);
+  sessionsByTokenHash.set(sha256(token), { userId: current.userId, tokenHash: sha256(token), expiresAt, createdAt: now.toISOString() });
+  return token;
 }

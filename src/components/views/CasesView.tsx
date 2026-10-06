@@ -12,7 +12,6 @@ import {
   FileText,
   Clock,
   CheckCircle2,
-  Scale,
   Pencil,
   X,
 } from 'lucide-react';
@@ -390,7 +389,7 @@ export function CasesView({
               Tworzenie nowej sprawy
             </h2>
             <p className="text-xs text-slate-600 mt-1">
-              Dla sprawy zostanie utworzony fizyczny katalog w folderze &quot;Moje_sprawy/&quot; wraz ze strukturą podkatalogów.
+              Sprawa i jej kolekcje zostaną zapisane w lokalnym, zaszyfrowanym sejfie.
             </p>
 
             <form onSubmit={handleSubmitNewCase} className="mt-4 space-y-4">
@@ -571,7 +570,7 @@ export function CasesView({
                   type="submit"
                   className="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-colors shadow-sm"
                 >
-                  Utwórz sprawę na dysku
+                  Utwórz sprawę
                 </button>
               </div>
             </form>

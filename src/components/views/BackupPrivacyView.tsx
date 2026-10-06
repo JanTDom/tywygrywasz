@@ -9,7 +9,6 @@ import {
   Download,
   Upload,
   AlertTriangle,
-  Eye,
   CheckCircle2,
   CloudOff,
   Cloud,
@@ -17,17 +16,24 @@ import {
   RotateCcw,
   Check,
 } from 'lucide-react';
-import { EncryptedContainer } from '../../domain/crypto';
-import { GeminiDisclosurePayload, DocumentRecord } from '../../domain/types';
+import { PortableVaultBackup } from '../../domain/vault-backup';
+import { SyncManifestComparison } from '../../domain/sync-engine';
+import { DocumentRecord } from '../../domain/types';
 import { LocalRedactionEngine, RedactedPublicationRecord } from '../../domain/redaction-engine';
 
 interface BackupPrivacyViewProps {
-  onExportBackup: (password: string) => Promise<EncryptedContainer>;
-  onRestoreBackup: (container: EncryptedContainer, password: string) => Promise<{ restoredCases: number; restoredDocs: number }>;
+  onExportBackup: (password: string) => Promise<PortableVaultBackup>;
+  onRestoreBackup: (container: unknown, password: string) => Promise<{ restoredCases: number; restoredDocs: number; restoredOriginals: number; legacy: boolean }>;
   vaultInfo: { caseCount: number; documentCount: number; versionCount: number };
   documents?: DocumentRecord[];
-  onSyncToServer?: (passphrase: string) => Promise<{ recordId: string; version: number }>;
-  onSyncFromServer?: (passphrase: string) => Promise<{ restoredCount: number }>;
+  onSyncToServer?: (passphrase: string) => Promise<{ recordId: string; version: number; conflict?: boolean }>;
+  onSyncFromServer?: (passphrase: string) => Promise<{ restoredCount: number; conflict?: boolean }>;
+  syncConflict?: (SyncManifestComparison & { version: number }) | null;
+  onResolveSync?: (choice: 'keep_local' | 'accept_server') => Promise<void>;
+  hasSyncCheckpoint?: boolean;
+  onRestoreSyncCheckpoint?: () => Promise<void>;
+  recoveryKey?: string;
+  onLockVault?: () => Promise<void>;
 }
 
 export function BackupPrivacyView({
@@ -37,11 +43,20 @@ export function BackupPrivacyView({
   documents = [],
   onSyncToServer,
   onSyncFromServer,
+  syncConflict,
+  onResolveSync,
+  hasSyncCheckpoint,
+  onRestoreSyncCheckpoint,
+  recoveryKey,
+  onLockVault,
 }: BackupPrivacyViewProps) {
   // Backup state
   const [exportPassword, setExportPassword] = useState('');
   const [exportedJson, setExportedJson] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [restoreAcknowledged, setRestoreAcknowledged] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
 
   // Restore state
   const [restorePassword, setRestorePassword] = useState('');
@@ -57,14 +72,13 @@ export function BackupPrivacyView({
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Social Redaction state
-  const [selectedDocIdForRedact, setSelectedDocIdForRedact] = useState<string>(documents[0]?.id || '');
+  const [selectedDocIdForRedact] = useState<string>(documents[0]?.id || '');
   const [customNamesToRedact, setCustomNamesToRedact] = useState('Jan Kowalski, Tomasz Majewski');
   const [redactedRecord, setRedactedRecord] = useState<RedactedPublicationRecord | null>(null);
   const [isRedacting, setIsRedacting] = useState(false);
 
   // Cloud AI state
   const [cloudAiEnabled, setCloudAiEnabled] = useState(false);
-  const [disclosureModalOpen, setDisclosureModalOpen] = useState(false);
   const [redactedFields, setRedactedFields] = useState<{ [key: string]: boolean }>({
     pesel: true,
     adres: true,
@@ -79,7 +93,7 @@ export function BackupPrivacyView({
     setSyncError(null);
     try {
       const res = await onSyncToServer(syncPassphrase);
-      setSyncStatus(`Zsynchronizowano pomyślnie z serwerem. Wersja szyfrogramu: v${res.version} (${res.recordId}).`);
+      setSyncStatus(res.conflict ? 'Serwer ma inną wersję. Przejrzyj różnice i wybierz, którą zachować przed wysyłką.' : `Zsynchronizowano szyfrogram. Wersja serwera: v${res.version}.`);
     } catch (err: unknown) {
       setSyncError(`Błąd synchronizacji: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -94,7 +108,7 @@ export function BackupPrivacyView({
     setSyncError(null);
     try {
       const res = await onSyncFromServer(syncPassphrase);
-      setSyncStatus(`Odzyskano i zaktualizowano stan spraw z serwera (${res.restoredCount} spraw).`);
+      setSyncStatus(res.conflict ? 'Pobrano wersję serwera. Sprawdź różnice i wybierz wersję poniżej; lokalna praca pozostaje zachowana.' : 'Wersja serwera jest zgodna z lokalnym sejfem.');
     } catch (err: unknown) {
       setSyncError(`Błąd pobierania szyfrogramu: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -132,11 +146,12 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
   const handleExport = async () => {
     if (!exportPassword) return;
     setIsExporting(true);
+    setExportError(null);
     try {
       const container = await onExportBackup(exportPassword);
       setExportedJson(JSON.stringify(container, null, 2));
     } catch (err: unknown) {
-      alert(`Błąd podczas eksportu: ${err instanceof Error ? err.message : String(err)}`);
+      setExportError(err instanceof Error ? err.message : 'Nie udało się wykonać kopii.');
     } finally {
       setIsExporting(false);
     }
@@ -154,16 +169,16 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
   };
 
   const handleRestore = async () => {
-    if (!restorePassword || !restoreInputJson) return;
+    if (!restorePassword || !restoreInputJson || !restoreAcknowledged) return;
     setIsRestoring(true);
     setRestoreError(null);
     setRestoreStatus(null);
 
     try {
-      const container = JSON.parse(restoreInputJson) as EncryptedContainer;
+      const container: unknown = JSON.parse(restoreInputJson);
       const res = await onRestoreBackup(container, restorePassword);
       setRestoreStatus(
-        `Odzyskano pomyślnie: ${res.restoredCases} spraw oraz ${res.restoredDocs} dokumentów z zachowaniem sum kontrolnych SHA-256.`
+        `Odtworzono ${res.restoredCases} spraw, ${res.restoredDocs} rekordów i ${res.restoredOriginals} oryginalnych plików.${res.legacy ? ' To starsza kopia samych metadanych: wskaż brakujące oryginały.' : ' Zweryfikowano bajty każdego oryginału i powiązania wersji.'}`
       );
     } catch (err: unknown) {
       setRestoreError(
@@ -183,13 +198,13 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             Kopie zapasowe, szyfrowanie i prywatność
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Gwarancja lokalnego przetwarzania: dokumenty, OCR i klucze nie opuszczają Twojego urządzenia.
+            Dokumenty, OCR i klucze są przetwarzane lokalnie. Synchronizacja i przekazanie zakresu do AI wymagają osobnego działania.
           </p>
         </div>
 
         <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-950 px-3.5 py-1.5 rounded-xl text-xs font-semibold">
           <CloudOff className="w-4 h-4 text-emerald-700" />
-          <span>Tryb 100% lokalny (domyślny)</span>
+          <span>Domyślnie na tym urządzeniu</span>
         </div>
       </div>
 
@@ -229,6 +244,11 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-3 items-center p-4 rounded-xl bg-slate-50 border border-slate-200">
+        <KeyRound className="w-5 h-5 text-slate-700" /><p className="text-xs text-slate-600 flex-1">Klucz odzyskiwania odblokowuje sejf bez hasła. Pobierz go i przechowuj osobno od urządzenia oraz kopii.</p>
+        <button type="button" disabled={!recoveryKey} className="button-secondary" onClick={() => { if (!recoveryKey) return; const url = URL.createObjectURL(new Blob([`TyWygrywasz.pl — klucz odzyskiwania\n${recoveryKey}\nPrzechowuj poza publicznymi usługami.\n`], { type: 'text/plain;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = 'tywygrywasz-klucz-odzyskiwania.txt'; link.click(); URL.revokeObjectURL(url); }}>Pobierz klucz</button>
+        {onLockVault && <button type="button" className="button-secondary" onClick={() => void onLockVault().catch((error) => setExportError(error instanceof Error ? error.message : 'Nie udało się zablokować sejfu.'))}><Lock className="w-4 h-4" /> Zablokuj sejf</button>}
+      </div>
       {/* Backup and Restore Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Export Backup Card */}
@@ -240,17 +260,17 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             </h2>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Tworzy zaszyfrowany plik JSON zawierający stan spraw, powiązania, OCR oraz metadane dokumentów.
-            Dane szyfruje losowy klucz sejfu, a Twoje hasło służy wyłącznie do jego bezpiecznego opakowania.
-            Dzięki temu zmianę hasła można wykonać bez ponownego szyfrowania dokumentów.
+            Pełna kopia zawiera oryginalne bajty wszystkich dokumentów, OCR, wersje, notatki, projekty pism i relacje. Klucz oryginałów jest zamknięty w zaszyfrowanych metadanych; do odtworzenia na nowym urządzeniu wystarczy ten plik i hasło kopii.
           </p>
 
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-              Hasło szyfrowania kopii
+              Hasło szyfrowania kopii (minimum 12 znaków)
             </label>
             <input
               type="password"
+              minLength={12}
+              autoComplete="new-password"
               value={exportPassword}
               onChange={(e) => setExportPassword(e.target.value)}
               className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-900 font-mono"
@@ -261,7 +281,7 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             <button
               type="button"
               onClick={handleExport}
-              disabled={isExporting || !exportPassword}
+              disabled={isExporting || exportPassword.length < 12}
               className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
@@ -280,13 +300,14 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             )}
           </div>
 
+          {exportError && <p role="alert" className="text-xs text-rose-700">{exportError}</p>}
           {exportedJson && (
             <div>
               <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
                 Podgląd zaszyfrowanego kontenera (kryptogram)
               </span>
               <div className="p-3 bg-slate-900 text-slate-300 font-mono text-[10px] rounded-xl max-h-36 overflow-y-auto whitespace-pre-wrap">
-                {exportedJson}
+                {exportedJson.slice(0, 2000)}{exportedJson.length > 2000 ? '\n… (pełny kontener znajduje się w pobieranym pliku)' : ''}
               </div>
             </div>
           )}
@@ -301,10 +322,10 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             </h2>
           </div>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Wklej zawartość pliku kopii zapasowej i podaj hasło. Aplikacja zweryfikuje sumy kontrolne
-            oraz integralność przed zaimportowaniem danych.
+            Wybierz plik kopii i podaj hasło. Wszystkie oryginały, sumy kontrolne i powiązania zostaną sprawdzone przed zmianą sejfu. Błąd hasła, uszkodzony plik lub brak miejsca zachowuje dotychczasowy magazyn.
           </p>
 
+          <label className="block text-xs font-semibold text-slate-700">Plik pełnej kopii (.json)<input className="block w-full mt-2 text-xs" type="file" accept=".json,application/json" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void file.text().then(setRestoreInputJson).catch(() => setRestoreError('Nie można odczytać pliku kopii.')); }} /></label>
           <div>
             <label className="block text-[11px] font-semibold text-slate-700 mb-1">
               Zawartość pliku JSON kopii zapasowej
@@ -330,10 +351,11 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             />
           </div>
 
+          <label className="flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" checked={restoreAcknowledged} onChange={(event) => setRestoreAcknowledged(event.target.checked)} /><span>Wybieram zastąpienie aktywnego sejfu tą kopią. Wcześniej zachowam potrzebne dane w osobnym eksporcie. Hasło kopii będzie lokalnym hasłem odblokowania.</span></label>
           <button
             type="button"
             onClick={handleRestore}
-            disabled={isRestoring || !restorePassword || !restoreInputJson}
+            disabled={isRestoring || restorePassword.length < 12 || !restoreInputJson || !restoreAcknowledged}
             className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors shadow-sm disabled:opacity-50"
           >
             <Upload className="w-3.5 h-3.5" />
@@ -405,6 +427,13 @@ W sprawie z wniosku strony odmawiam zatwierdzenia projektu budowlanego.`;
             </button>
           </div>
 
+          {syncConflict && <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 text-xs" role="status">
+            <strong className="block text-amber-950">Wersje różnią się — wybierz dalsze działanie</strong>
+            <table className="w-full text-left"><thead><tr><th>Wersja</th><th>Sprawy</th><th>Dokumenty</th><th>Pisma</th></tr></thead><tbody><tr><td>Lokalna</td><td>{syncConflict.local.cases}</td><td>{syncConflict.local.documents}</td><td>{syncConflict.local.letters}</td></tr><tr><td>Serwer v{syncConflict.version}</td><td>{syncConflict.server.cases}</td><td>{syncConflict.server.documents}</td><td>{syncConflict.server.letters}</td></tr></tbody></table>
+            <p>Zastępowana wersja zostanie zachowana jako zaszyfrowany punkt przywracania. Oryginały na urządzeniu pozostają zachowane.</p>
+            <div className="flex flex-wrap gap-2">{(['keep_local', 'accept_server'] as const).map((choice) => <button key={choice} type="button" disabled={isResolving} className="button-secondary" onClick={() => { setIsResolving(true); void onResolveSync?.(choice).catch((error) => setSyncError(error instanceof Error ? error.message : 'Nie udało się rozwiązać konfliktu.')).finally(() => setIsResolving(false)); }}>{choice === 'keep_local' ? 'Zachowaj lokalną' : 'Zastosuj serwerową'}</button>)}</div>
+          </div>}
+          {hasSyncCheckpoint && <button type="button" className="button-secondary" onClick={() => void onRestoreSyncCheckpoint?.().catch((error) => setSyncError(error instanceof Error ? error.message : 'Nie udało się przywrócić wersji.'))}><RotateCcw className="w-4 h-4" /> Przywróć poprzednią wersję lokalną</button>}
           {syncStatus && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-xl text-xs flex items-start gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />

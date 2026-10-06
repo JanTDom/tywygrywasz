@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHmac } from 'node:crypto';
+import { readLimitedRequestText } from '@/domain/http-body';
 import {
   CSRF_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SESSION_TTL_SECONDS,
   createCsrfToken,
   getUserBySessionToken,
+  getSupabaseAdminClient,
   safeEqualStrings,
 } from '@/domain/auth-store';
 
@@ -39,6 +42,28 @@ export function enforceRateLimit(request: NextRequest, scope: string, limit: num
 
 export function clearRateLimitsForTests(): void {
   rateBuckets.clear();
+}
+
+/** Atomic shared limiter across production instances; only an HMAC of the
+ * technical connection address reaches Postgres, never email or vault data. */
+export async function enforceAuthRateLimit(request: NextRequest, scope: string, limit: number): Promise<NextResponse | null> {
+  const localLimited = enforceRateLimit(request, scope, limit);
+  if (localLimited) return localLimited;
+  try {
+    const db = getSupabaseAdminClient();
+    if (!db) return null;
+    const secret = process.env.AUTH_RATE_LIMIT_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!secret) return jsonError('Ochrona kont jest teraz niedostępna. Spróbuj ponownie później.', 503);
+    const key = createHmac('sha256', secret).update(`${scope}:${clientAddress(request)}`).digest('hex');
+    const { data, error } = await db.rpc('take_app_auth_rate_limit', { p_key: key, p_limit: limit, p_window_seconds: RATE_WINDOW_MS / 1000 });
+    if (error || typeof data !== 'number') return jsonError('Ochrona kont jest teraz niedostępna. Spróbuj ponownie później.', 503);
+    if (data <= 0) return null;
+    const response = jsonError('Zbyt wiele prób. Odczekaj chwilę i spróbuj ponownie.', 429);
+    response.headers.set('Retry-After', String(data));
+    return response;
+  } catch {
+    return jsonError('Ochrona kont jest teraz niedostępna. Spróbuj ponownie później.', 503);
+  }
 }
 
 export function sessionCookieOptions() {
@@ -101,10 +126,7 @@ export function csrfIsValid(request: NextRequest): boolean {
 }
 
 export async function parseJsonBody(request: NextRequest, maxBytes = 16 * 1024): Promise<Record<string, unknown>> {
-  const contentLength = Number(request.headers.get('content-length') || 0);
-  if (contentLength > maxBytes) throw new Error('Dane formularza są zbyt duże.');
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > maxBytes) throw new Error('Dane formularza są zbyt duże.');
+  const raw = await readLimitedRequestText(request, maxBytes);
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Nieprawidłowe dane formularza.');
   return parsed as Record<string, unknown>;

@@ -2,7 +2,7 @@
 
 ## Kontekst
 
-Zgodnie z rozszerzonymi wymaganiami projektu „Obywatel”, aplikacja ma prowadzić zwykłego człowieka nie tylko przez sprawy urzędowe, lecz również przez:
+Zgodnie z rozszerzonymi wymaganiami projektu „TyWygrywasz.pl”, aplikacja ma prowadzić zwykłego człowieka nie tylko przez sprawy urzędowe, lecz również przez:
 - spory konsumenckie i reklamacje wobec firm;
 - spory wynikające z umów z osobami fizycznymi i przedsiębiorcami;
 - wnioski o informację publiczną, petycje i skargi;

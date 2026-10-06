@@ -1,6 +1,6 @@
-# Obywatel — pakiet dla Google Antigravity
+# TyWygrywasz.pl — pakiet projektu
 
-Nazwa robocza aplikacji: **Obywatel**. Rynek i jurysdykcja robocza: Polska. Pakiet jest instrukcją budowy, a nie gotową aplikacją lub zweryfikowaną bazą prawa. Nie instaluje narzędzi, nie aktywuje usług i nie zawiera kluczy API.
+Nazwa aplikacji: **TyWygrywasz.pl**. Rynek i jurysdykcja robocza: Polska. Pakiet jest instrukcją budowy, a nie gotową aplikacją lub zweryfikowaną bazą prawa. Nie instaluje narzędzi, nie aktywuje usług i nie zawiera kluczy API.
 
 ## Jak użyć
 
@@ -24,7 +24,7 @@ urządzenia bez osobnej zgody.
 ## Prompt startowy — skopiuj do Antigravity
 
 ```text
-Zbuduj aplikację webową „Obywatel” według AGENTS.md, docs/ i skilli
+Zbuduj aplikację webową „TyWygrywasz.pl” według AGENTS.md, docs/ i skilli
 w .agents/skills. Pomagamy zwykłym ludziom świadomie prowadzić własne
 sprawy z urzędami i działać w interesie społecznym w Polsce.
 
@@ -49,7 +49,7 @@ Najważniejsze wymagania:
 6. Terminy wylicza sprawdzalny moduł reguł. Nie zgaduj doręczenia,
    procedury ani właściwości. Brak danych blokuje pewną rekomendację,
    ale nie blokuje uporządkowania dokumentów i zebrania brakujących faktów.
-7. Obywatel zatwierdza pisma, podpisuje i składa je w odpowiednim kanale.
+7. Użytkownik TyWygrywasz zatwierdza pisma, podpisuje i składa je w odpowiednim kanale.
    Publikacja społeczna jest odrębną czynnością z anonimizacją i zgodą.
 
 Najpierw przeczytaj pakiet i sprawdź dostępne narzędzia oraz wersje.

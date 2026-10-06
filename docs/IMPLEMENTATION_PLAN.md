@@ -1,4 +1,4 @@
-# Plan budowy aplikacji „Obywatel”
+# Plan budowy aplikacji „TyWygrywasz.pl”
 
 Dokument strategiczny i techniczny opracowany na podstawie `AGENTS.md`, `START.md`, `QUICKSTART.md` oraz dokumentacji w katalogu `docs/`.
 

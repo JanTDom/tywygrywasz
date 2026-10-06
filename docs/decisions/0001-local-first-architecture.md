@@ -2,7 +2,7 @@
 
 ## Kontekst
 
-Aplikacja „Obywatel” wspiera obywateli w prowadzeniu spraw urzędowych i działań w interesie społecznym w Polsce.
+Aplikacja „TyWygrywasz.pl” wspiera użytkowników w prowadzeniu spraw urzędowych i działań w interesie społecznym w Polsce.
 Zgodnie z wymaganiami kardynalnymi zawartymi w `AGENTS.md` oraz `docs/PRIVACY.md`:
 1. Dokumenty, OCR, ekstrakcje, prywatne indeksy, szkice i klucze muszą pozostać wyłącznie na urządzeniu użytkownika.
 2. Domyślny tryb nie może przesyłać żadnych danych ani ich pochodnych do chmury.

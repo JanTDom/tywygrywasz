@@ -1,4 +1,4 @@
-# Obywatel — reguły projektu
+# TyWygrywasz.pl — reguły projektu
 
 Buduj aplikację dla zwykłych ludzi prowadzących własne sprawy z urzędami
 i działania w interesie społecznym. Robocza jurysdykcja: Polska. Język

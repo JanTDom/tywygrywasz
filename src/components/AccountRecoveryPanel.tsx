@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BadgeCheck, KeyRound, Mail, ShieldCheck } from 'lucide-react';
 
 type Props = {
   user?: { email: string; emailVerified?: boolean } | null;
   onAccountChanged?: () => Promise<void> | void;
-  onPasswordReset?: () => void;
+  onPasswordReset?: () => Promise<void> | void;
 };
 
 /** Account-only actions: this component never receives a document or vault key. */
@@ -20,6 +20,9 @@ export function AccountRecoveryPanel({ user, onAccountChanged, onPasswordReset }
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [emailCodesAvailable, setEmailCodesAvailable] = useState<boolean | null>(null);
+  const actionController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => actionController.current?.abort(), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -33,27 +36,37 @@ export function AccountRecoveryPanel({ user, onAccountChanged, onPasswordReset }
   }, []);
 
   async function action(path: string, method: 'POST' | 'PATCH', body?: Record<string, string>) {
+    if (actionController.current && !actionController.current.signal.aborted) return;
+    const controller = new AbortController();
+    actionController.current = controller;
     setBusy(true); setError(''); setNotice('');
     try {
-      const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include', cache: 'no-store' });
+      const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include', cache: 'no-store', signal: controller.signal });
       const csrf = await csrfResponse.json();
+      if (controller.signal.aborted) return;
       if (!csrfResponse.ok || !csrf.csrfToken) throw new Error('Nie udało się przygotować formularza.');
       const response = await fetch(path, {
         method, credentials: 'include', cache: 'no-store',
         headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrf.csrfToken },
         body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
       });
       const result = await response.json();
+      if (controller.signal.aborted) return;
       if (!response.ok) throw new Error(result.error || 'Nie udało się wykonać operacji konta.');
       setNotice(result.message || 'Operacja konta zakończona.');
       if (method === 'PATCH') {
         setCode(''); setPassword(''); setRepeatPassword('');
-        if (path.endsWith('password-reset')) onPasswordReset?.();
+        if (path.endsWith('password-reset')) await onPasswordReset?.();
         else await onAccountChanged?.();
       }
     } catch (reason) {
+      if (controller.signal.aborted) return;
       setError(reason instanceof Error ? reason.message : 'Operacja konta jest teraz niedostępna.');
-    } finally { setBusy(false); }
+    } finally {
+      if (actionController.current === controller) actionController.current = null;
+      if (!controller.signal.aborted) setBusy(false);
+    }
   }
 
   function choose(next: 'verify' | 'reset') {

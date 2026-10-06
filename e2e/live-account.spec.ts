@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { LocalVault } from '../src/domain/vault';
 import { E2EESyncEngine } from '../src/domain/sync-engine';
+import { deploymentProtectionCookies } from './deployment-protection';
 
 /** Explicit release check using fresh synthetic accounts only. No email is sent.
  * The release operator removes these exact IDs after inspection via service role. */
@@ -22,7 +23,7 @@ test('live account sessions and encrypted sync isolate two synthetic owners', as
   }
   try {
     for (let index = 0; index < 2; index++) {
-      const context = await playwright.request.newContext({ baseURL });
+      const context = await playwright.request.newContext({ baseURL, storageState: { cookies: await deploymentProtectionCookies(baseURL), origins: [] } });
       contexts.push(context);
       const capabilities = await context.get('/api/auth/capabilities');
       expect(capabilities.ok()).toBe(true);

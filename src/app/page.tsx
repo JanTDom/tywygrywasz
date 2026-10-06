@@ -44,6 +44,7 @@ import { LocalOcrEngine } from '../domain/ocr-engine';
 import { validateRelink, verifyOriginalBytes } from '../domain/document-integrity';
 import { extractFieldsFromText } from '../domain/extractor';
 import { E2EESyncEngine, compareSyncManifests, type SyncManifestComparison } from '../domain/sync-engine';
+import { syncCheckpointStorageKey, syncBaseStorageKey } from '../domain/sync-storage';
 import { createOwnedDocumentStorage, openOwnedDocumentStorage, markOwnedDocumentStorageInitialized, requestPersistentBrowserStorage } from '../domain/browser-storage';
 import { computeSha256 } from '../domain/crypto';
 import { createVaultAccess, decodeRecoveryKey, encodeRecoveryKey, unlockVaultAccess, validateVaultPassword } from '../domain/vault-access';
@@ -100,6 +101,18 @@ export default function TyWygrywaszApp() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [documentStorage, setDocumentStorage] = useState(() => createOwnedDocumentStorage({ ownerId: 'local', vaultId: 'sejf-lokalny-01' }));
+  const renderedOwnerEpoch = vaultOwnerEpoch.current;
+  const privateViewKey = JSON.stringify([profile?.id ?? 'local', vault.vaultId, vaultHydrated, renderedOwnerEpoch]);
+
+  const clearPrivateViewState = () => {
+    setSearchQuery('');
+    setIsSearchOpen(false);
+    setActiveCaseId(null);
+    setDiskFiles([]);
+    setLastMoveDescription(null);
+    setGlobalNotice(null);
+    setAccountVaultPassword('');
+  };
 
   const assertCurrentVaultOperation = (epoch: number) => {
     if (vaultOwnerEpoch.current !== epoch) throw new Error('Sejf lub konto zmieniły się podczas operacji. Odblokuj właściwy sejf i ponów działanie.');
@@ -153,6 +166,7 @@ export default function TyWygrywaszApp() {
 
   const handleUnlockLocalVault = async (password: string) => {
     const ownerEpoch = ++vaultOwnerEpoch.current;
+    clearPrivateViewState();
     setPendingSync(null);
     const storedEnvelope = window.localStorage.getItem(LOCAL_VAULT_ENVELOPE_STORAGE);
     const legacyKey = window.localStorage.getItem(LOCAL_VAULT_KEY_STORAGE);
@@ -185,7 +199,7 @@ export default function TyWygrywaszApp() {
     setVaultPassphrase(recoveryKey);
     setDocumentStorage(ownedStorage);
     setVault(restoredVault);
-    setHasSyncCheckpoint(Boolean(window.localStorage.getItem(`tywygrywasz-sync-checkpoint-${restoredVault.vaultId}`)));
+    setHasSyncCheckpoint(Boolean(window.localStorage.getItem(syncCheckpointStorageKey('local', restoredVault.vaultId))));
     setVaultHydrated(true);
     setLocalVaultMode(null);
     setGlobalNotice('Odblokowano lokalny sejf. Klucz na urządzeniu jest chroniony hasłem.');
@@ -194,22 +208,30 @@ export default function TyWygrywaszApp() {
   const handleLockVault = async () => {
     const ownerEpoch = ++vaultOwnerEpoch.current;
     setPendingSync(null);
-    if (vaultPassphrase && vaultHydrated) {
-      const container = await vault.exportEncryptedBackup(vaultPassphrase);
-      assertCurrentVaultOperation(ownerEpoch);
-      window.localStorage.setItem(profile ? `tywygrywasz-vault-${profile.id}` : LOCAL_VAULT_BACKUP_STORAGE, JSON.stringify(container));
-    }
+    clearPrivateViewState();
+    setVaultHydrated(false);
     documentStorage.clearVaultKey();
     vaultKeyMaterial?.fill(0);
     setVaultKeyMaterial(null);
     setVaultPassphrase('');
     setVaultRecoveryKey('');
-    setVaultHydrated(false);
     setVault(new LocalVault(profile ? `sejf-${profile.id}` : 'sejf-lokalny-01'));
-    setPendingSync(null);
-    if (profile) setIsAccountOpen(true);
-    else setLocalVaultMode('unlock');
-    setGlobalNotice('Sejf jest zablokowany. Dane zapisane na urządzeniu pozostają zaszyfrowane.');
+    try {
+      if (vaultPassphrase && vaultHydrated) {
+        const container = await vault.exportEncryptedBackup(vaultPassphrase);
+        assertCurrentVaultOperation(ownerEpoch);
+        window.localStorage.setItem(profile ? `tywygrywasz-vault-${profile.id}` : LOCAL_VAULT_BACKUP_STORAGE, JSON.stringify(container));
+      }
+    } finally {
+      // A save failure must not leave an explicitly locked view readable.
+      if (vaultOwnerEpoch.current === ownerEpoch) {
+        setPendingSync(null);
+        if (profile) setIsAccountOpen(true);
+        else setLocalVaultMode('unlock');
+        setGlobalNotice('Sejf jest zablokowany. Dane zapisane na urządzeniu pozostają zaszyfrowane.');
+      }
+    }
+    assertCurrentVaultOperation(ownerEpoch);
   };
 
   useEffect(() => {
@@ -228,11 +250,12 @@ export default function TyWygrywaszApp() {
   useEffect(() => {
     if (!vaultPassphrase || !vaultHydrated || typeof window === 'undefined') return;
     let cancelled = false;
+    const ownerEpoch = vaultOwnerEpoch.current;
     void vault.exportEncryptedBackup(vaultPassphrase).then((container) => {
-      if (cancelled) return;
+      if (cancelled || vaultOwnerEpoch.current !== ownerEpoch) return;
       const storageKey = profile ? `tywygrywasz-vault-${profile.id}` : LOCAL_VAULT_BACKUP_STORAGE;
       window.localStorage.setItem(storageKey, JSON.stringify(container));
-    }).catch(() => { if (!cancelled) setGlobalNotice('Nie udało się zapisać lokalnego manifestu. Zachowaj otwartą kartę i wykonaj pełną kopię zapasową, zanim zamkniesz aplikację.'); });
+    }).catch(() => { if (!cancelled && vaultOwnerEpoch.current === ownerEpoch) setGlobalNotice('Nie udało się zapisać lokalnego manifestu. Zachowaj otwartą kartę i wykonaj pełną kopię zapasową, zanim zamkniesz aplikację.'); });
     return () => { cancelled = true; };
   }, [vault, profile, vaultPassphrase, vaultHydrated]);
 
@@ -249,6 +272,7 @@ export default function TyWygrywaszApp() {
     try {
       if (vaultHydrated) await handleLockVault();
       ownerEpoch = ++vaultOwnerEpoch.current;
+      clearPrivateViewState();
       setPendingSync(null);
       setVaultHydrated(false);
       const csrfResponse = await fetch('/api/auth/csrf', { credentials: 'include' });
@@ -326,7 +350,7 @@ export default function TyWygrywaszApp() {
       window.localStorage.removeItem(legacyKeyStorageName);
       setVaultKeyMaterial(vaultKey); setVaultRecoveryKey(storedRecoveryKey); setVaultPassphrase(storedRecoveryKey);
       setVault(restoredVault); setDocumentStorage(ownedStorage);
-      setHasSyncCheckpoint(Boolean(window.localStorage.getItem(`tywygrywasz-sync-checkpoint-${restoredVault.vaultId}`)));
+      setHasSyncCheckpoint(Boolean(window.localStorage.getItem(syncCheckpointStorageKey(nextProfile.id, restoredVault.vaultId))));
       setProfilePassword('');
       setVaultHydrated(true);
       setIsAccountOpen(false);
@@ -348,6 +372,7 @@ export default function TyWygrywaszApp() {
   const handleUnlockAccountVault = async () => {
     if (!profile) return;
     const ownerEpoch = ++vaultOwnerEpoch.current;
+    clearPrivateViewState();
     setPendingSync(null);
     try {
       const storedEnvelope = window.localStorage.getItem(`${VAULT_ENVELOPE_PREFIX}${profile.id}`);
@@ -361,10 +386,10 @@ export default function TyWygrywaszApp() {
       documentStorage.clearVaultKey(); vaultKeyMaterial?.fill(0);
       setDocumentStorage(ownedStorage);
       setVault(restoredVault); setVaultKeyMaterial(key); setVaultRecoveryKey(recoveryKey); setVaultPassphrase(recoveryKey);
-      setHasSyncCheckpoint(Boolean(window.localStorage.getItem(`tywygrywasz-sync-checkpoint-${restoredVault.vaultId}`)));
+      setHasSyncCheckpoint(Boolean(window.localStorage.getItem(syncCheckpointStorageKey(profile.id, restoredVault.vaultId))));
       setVaultHydrated(true); setAccountVaultPassword(''); setIsAccountOpen(false);
       setGlobalNotice('Odblokowano sejf lokalnie. Do synchronizacji potrzebna jest osobna aktywna sesja konta.');
-    } catch (error) { setGlobalNotice(error instanceof Error ? error.message : 'Nie można odblokować lokalnego sejfu.'); }
+    } catch (error) { if (vaultOwnerEpoch.current === ownerEpoch) setGlobalNotice(error instanceof Error ? error.message : 'Nie można odblokować lokalnego sejfu.'); }
   };
 
   const handleLogout = async () => {
@@ -372,6 +397,7 @@ export default function TyWygrywaszApp() {
     accountActionBusy.current = true;
     setAccountBusy(true);
     vaultOwnerEpoch.current += 1;
+    clearPrivateViewState();
     setPendingSync(null);
     setHasSyncCheckpoint(false);
     let savedLocally = true;
@@ -426,12 +452,12 @@ export default function TyWygrywaszApp() {
   };
 
   // Convert vault maps to arrays for UI
-  const cases = Array.from(vault.cases.values());
-  const documents = Array.from(vault.documents.values());
-  const versions = Array.from(vault.documentVersions.values());
-  const deadlines = Array.from(vault.deadlines.values());
-  const events = Array.from(vault.events.values());
-  const letters = Array.from(vault.letters.values());
+  const cases = vaultHydrated ? Array.from(vault.cases.values()) : [];
+  const documents = vaultHydrated ? Array.from(vault.documents.values()) : [];
+  const versions = vaultHydrated ? Array.from(vault.documentVersions.values()) : [];
+  const deadlines = vaultHydrated ? Array.from(vault.deadlines.values()) : [];
+  const events = vaultHydrated ? Array.from(vault.events.values()) : [];
+  const letters = vaultHydrated ? Array.from(vault.letters.values()) : [];
   const legalSources = Array.from(vault.legalSources.values());
   const inboxProposalsRecord: Record<string, InboxProposal> = {};
   vault.inboxProposals.forEach((p, k) => {
@@ -453,7 +479,7 @@ export default function TyWygrywaszApp() {
   });
 
   // Active case analysis
-  const currentCase = activeCaseId
+  const currentCase = !vaultHydrated ? null : activeCaseId
     ? vault.cases.get(activeCaseId)
     : cases.length > 0
     ? cases[0]
@@ -498,6 +524,7 @@ export default function TyWygrywaszApp() {
       return;
     }
     setIsScanningDisk(true);
+    const ownerEpoch = vaultOwnerEpoch.current;
     try {
       const present: DiskFileInfo[] = [];
       let missing = 0;
@@ -506,27 +533,31 @@ export default function TyWygrywaszApp() {
         try {
           const bytes = await documentStorage.getBytes(doc.id);
           const status = await verifyOriginalBytes(doc, bytes);
+          assertCurrentVaultOperation(ownerEpoch);
           doc.isMissingOnDisk = status === 'missing';
           if (status === 'missing') missing += 1;
           if (status === 'modified') modified += 1;
           if (bytes) present.push({ name: doc.originalFileName, relativePath: doc.diskRelativePath || '', size: bytes.byteLength, modifiedAt: doc.createdAt, isDirectory: false });
         } catch {
+          assertCurrentVaultOperation(ownerEpoch);
           doc.isMissingOnDisk = true;
           missing += 1;
         }
       }
+      assertCurrentVaultOperation(ownerEpoch);
       setDiskFiles(present);
       setGlobalNotice(`Sprawdzono lokalnie ${vault.documents.size} plików. Niedostępne: ${missing}; zmienione: ${modified}.`);
       triggerRefresh();
     } finally {
-      setIsScanningDisk(false);
+      if (vaultOwnerEpoch.current === ownerEpoch) setIsScanningDisk(false);
     }
   };
 
   // 3. Wczytanie 3 pełnych syntetycznych scenariuszy
   const handleLoadSyntheticDemo = async () => {
+    if (!vaultHydrated) { setGlobalNotice('Odblokuj sejf, aby zapisać przykładowe sprawy na tym urządzeniu.'); return; }
     setIsLoadingDemo(true);
-    setGlobalNotice('Wczytywanie 3 syntetycznych spraw i zapisywanie plików w Moje_sprawy/ ...');
+    setGlobalNotice('Wczytywanie 3 syntetycznych spraw do lokalnego, zaszyfrowanego sejfu…');
 
     try {
       // Sprawa 1: Administracyjna (S-0001)
@@ -729,7 +760,7 @@ export default function TyWygrywaszApp() {
       vault.setLegalAnalysis(analysis3);
 
       setActiveCaseId('S-0001');
-      setGlobalNotice('Wczytano 3 sprawy syntetyczne. Dokumenty zapisano fizycznie na dysku.');
+      setGlobalNotice('Wczytano 3 sprawy syntetyczne. Dokumenty zapisano w zaszyfrowanym magazynie tej przeglądarki.');
       triggerRefresh();
       await handleScanDisk();
     } catch (err: unknown) {
@@ -834,7 +865,10 @@ export default function TyWygrywaszApp() {
   // 10. Eksport i Restore zaszyfrowanej kopii
   const handleExportBackup = async (passphrase: string): Promise<PortableVaultBackup> => {
     if (!vaultKeyMaterial || !vaultHydrated) throw new Error('Najpierw odblokuj sejf.');
-    return exportPortableVaultBackup(vault, documentStorage, vaultKeyMaterial, passphrase);
+    const ownerEpoch = vaultOwnerEpoch.current;
+    const backup = await exportPortableVaultBackup(vault, documentStorage, vaultKeyMaterial, passphrase);
+    assertCurrentVaultOperation(ownerEpoch);
+    return backup;
   };
 
   const handleRestoreBackup = async (container: unknown, passphrase: string): Promise<{ restoredCases: number; restoredDocs: number; restoredOriginals: number; legacy: boolean }> => {
@@ -872,6 +906,7 @@ export default function TyWygrywaszApp() {
       throw error;
     }
     vaultOwnerEpoch.current += 1;
+    clearPrivateViewState();
     documentStorage.clearVaultKey();
     vaultKeyMaterial.fill(0);
     setVaultKeyMaterial(opened.key);
@@ -880,8 +915,8 @@ export default function TyWygrywaszApp() {
     setDocumentStorage(restoredStorage);
     setVault(restoredVault);
     // Sync checkpoints use the previous key; they cannot be reused after an intentional full restore.
-    window.localStorage.removeItem(`tywygrywasz-sync-checkpoint-${restoredVault.vaultId}`);
-    window.localStorage.removeItem(`tywygrywasz-sync-base-${restoredVault.vaultId}`);
+    window.localStorage.removeItem(syncCheckpointStorageKey(profile?.id ?? 'local', restoredVault.vaultId));
+    window.localStorage.removeItem(syncBaseStorageKey(profile?.id ?? 'local', restoredVault.vaultId));
     setHasSyncCheckpoint(false);
     setPendingSync(null);
     setGlobalNotice(`Odtworzono sejf. Hasło kopii jest teraz lokalnym hasłem odblokowania; zachowaj klucz odzyskiwania.${opened.legacy ? ' Starsza kopia zawiera metadane; wskaż brakujące oryginały.' : ''}`);
@@ -889,6 +924,8 @@ export default function TyWygrywaszApp() {
   };
 
   const handleRunLocalOcr = async (docId: string) => {
+    if (!vaultHydrated) throw new Error('Odblokuj sejf przed odczytem OCR.');
+    const ownerEpoch = vaultOwnerEpoch.current;
     const doc = vault.documents.get(docId);
     if (!doc) return;
     const activeVer = vault.documentVersions.get(doc.activeVersionId);
@@ -896,16 +933,20 @@ export default function TyWygrywaszApp() {
 
     const ocrEngine = new LocalOcrEngine();
     const originalBytes = await documentStorage.getBytes(doc.id);
+    assertCurrentVaultOperation(ownerEpoch);
     if (!originalBytes) throw new Error('Brakuje oryginału. Wskaż ponownie plik przed odczytem OCR.');
     await validateRelink(doc, originalBytes);
+    assertCurrentVaultOperation(ownerEpoch);
     const result = await ocrEngine.processImageOrScan({
       fileName: doc.originalFileName,
       mimeType: doc.mimeType,
       rawPayload: originalBytes,
     });
+    assertCurrentVaultOperation(ownerEpoch);
 
     const existingCount = Array.from(vault.documentVersions.values()).filter((v) => v.documentId === doc.id).length;
     const newVer = await ocrEngine.createOcrVersion(doc, result, existingCount + 1);
+    assertCurrentVaultOperation(ownerEpoch);
     vault.documentVersions.set(newVer.id, newVer);
     doc.activeVersionId = newVer.id;
     const extracted = extractFieldsFromText({ documentId: doc.id, versionId: newVer.id, text: result.fullText, sourceLines: result.lines });
@@ -1011,23 +1052,30 @@ export default function TyWygrywaszApp() {
   };
 
   const handleRelinkOriginal = async (documentId: string, file: File) => {
+    if (!vaultHydrated) throw new Error('Odblokuj sejf przed wskazaniem oryginału.');
+    const ownerEpoch = vaultOwnerEpoch.current;
     const record = vault.documents.get(documentId);
     if (!record) throw new Error('Dokument nie istnieje w tym sejfie.');
     const bytes = new Uint8Array(await file.arrayBuffer());
     await validateRelink(record, bytes);
+    assertCurrentVaultOperation(ownerEpoch);
     await documentStorage.relinkOriginal({ documentId, originalFileName: record.originalFileName, mimeType: record.mimeType, bytes, importedAt: record.createdAt }, { sha256: record.originalSha256, size: record.fileSize });
+    assertCurrentVaultOperation(ownerEpoch);
     record.isMissingOnDisk = false;
     setGlobalNotice('Ponownie wskazano oryginał. Bajty i SHA-256 są zgodne z dowodem zapisanym w manifeście.');
     triggerRefresh();
   };
 
   const handleSaveCorrection = async (docId: string, correctedText: string, note: string) => {
+    if (!vaultHydrated) throw new Error('Odblokuj sejf przed zapisem korekty.');
+    const ownerEpoch = vaultOwnerEpoch.current;
     await vault.addDocumentVersion({
       documentId: docId,
       kind: 'user_corrected',
       textPayload: correctedText,
       toolOrAuthor: `Korekta użytkownika: ${note}`,
     });
+    assertCurrentVaultOperation(ownerEpoch);
     setGlobalNotice(`Zapisano skorygowaną wersję dokumentu bez modyfikacji oryginału.`);
     triggerRefresh();
   };
@@ -1056,7 +1104,7 @@ export default function TyWygrywaszApp() {
       throw new Error(error.error || 'Błąd synchronizacji serwera.');
     }
     assertCurrentVaultOperation(ownerEpoch);
-    window.localStorage.setItem(`tywygrywasz-sync-base-${vault.vaultId}`, JSON.stringify({ version: payload.version, revision: payload.revision }));
+    window.localStorage.setItem(syncBaseStorageKey(profile?.id ?? 'local', vault.vaultId), JSON.stringify({ version: payload.version, revision: payload.revision }));
     return { recordId: payload.recordId, version: payload.version, conflict: false };
   };
 
@@ -1075,7 +1123,7 @@ export default function TyWygrywaszApp() {
     if (manifest.vaultId !== vault.vaultId) throw new Error('Kopia synchronizacji należy do innego sejfu.');
     const comparison = compareSyncManifests(vault.toManifest(), manifest);
     let base: { revision?: string } | null = null;
-    try { base = JSON.parse(window.localStorage.getItem(`tywygrywasz-sync-base-${vault.vaultId}`) || 'null'); } catch { /* unknown base requires review */ }
+    try { base = JSON.parse(window.localStorage.getItem(syncBaseStorageKey(profile?.id ?? 'local', vault.vaultId)) || 'null'); } catch { /* unknown base requires review */ }
     if (comparison.changed && base?.revision !== data.record.revision) {
       setPendingSync({ manifest, ownerEpoch, version: data.record.version, revision: data.record.revision, comparison, direction: 'upload', passphrase });
       return { recordId, version: data.record.version, conflict: true };
@@ -1111,7 +1159,7 @@ export default function TyWygrywaszApp() {
         // Preserve the remote variant before an explicit CAS write replaces it.
         const remoteCheckpoint = await LocalVault.fromManifest(pendingSync.manifest).exportEncryptedBackup(vaultPassphrase);
         assertCurrentVaultOperation(ownerEpoch);
-        window.localStorage.setItem(`tywygrywasz-sync-checkpoint-${vault.vaultId}`, JSON.stringify(remoteCheckpoint));
+        window.localStorage.setItem(syncCheckpointStorageKey(profile?.id ?? 'local', vault.vaultId), JSON.stringify(remoteCheckpoint));
         await publishSyncVersion(pendingSync.passphrase, pendingSync.version, ownerEpoch);
         setHasSyncCheckpoint(true);
         setGlobalNotice('Wysłano wybraną lokalną wersję. Wcześniejsza wersja serwera pozostaje w zaszyfrowanym punkcie przywracania.');
@@ -1123,14 +1171,14 @@ export default function TyWygrywaszApp() {
     // A durable encrypted checkpoint must succeed before switching the active manifest.
     const checkpoint = await vault.exportEncryptedBackup(vaultPassphrase);
     assertCurrentVaultOperation(ownerEpoch);
-    window.localStorage.setItem(`tywygrywasz-sync-checkpoint-${vault.vaultId}`, JSON.stringify(checkpoint));
+    window.localStorage.setItem(syncCheckpointStorageKey(profile?.id ?? 'local', vault.vaultId), JSON.stringify(checkpoint));
     const manifest = structuredClone(pendingSync.manifest);
     for (const document of manifest.documents) {
       const original = await documentStorage.getMetadata(document.id);
       document.isMissingOnDisk = !original || original.sha256 !== document.originalSha256;
     }
     assertCurrentVaultOperation(ownerEpoch);
-    window.localStorage.setItem(`tywygrywasz-sync-base-${vault.vaultId}`, JSON.stringify({ version: pendingSync.version, revision: pendingSync.revision }));
+    window.localStorage.setItem(syncBaseStorageKey(profile?.id ?? 'local', vault.vaultId), JSON.stringify({ version: pendingSync.version, revision: pendingSync.revision }));
     setVault(LocalVault.fromManifest(manifest));
     setHasSyncCheckpoint(true);
     setPendingSync(null);
@@ -1140,12 +1188,12 @@ export default function TyWygrywaszApp() {
   const handleRestoreSyncCheckpoint = async () => {
     if (!vaultPassphrase) throw new Error('Sejf jest zablokowany.');
     const ownerEpoch = vaultOwnerEpoch.current;
-    const stored = window.localStorage.getItem(`tywygrywasz-sync-checkpoint-${vault.vaultId}`);
+    const stored = window.localStorage.getItem(syncCheckpointStorageKey(profile?.id ?? 'local', vault.vaultId));
     if (!stored) throw new Error('Nie ma poprzedniej wersji lokalnej.');
     const previous = await LocalVault.restoreFromEncryptedBackup(JSON.parse(stored) as EncryptedContainer, vaultPassphrase);
     const current = await vault.exportEncryptedBackup(vaultPassphrase);
     assertCurrentVaultOperation(ownerEpoch);
-    window.localStorage.setItem(`tywygrywasz-sync-checkpoint-${vault.vaultId}`, JSON.stringify(current));
+    window.localStorage.setItem(syncCheckpointStorageKey(profile?.id ?? 'local', vault.vaultId), JSON.stringify(current));
     setVault(previous);
     setHasSyncCheckpoint(true);
     setGlobalNotice('Przywrócono poprzednią wersję lokalną. Druga wersja pozostaje zachowana.');
@@ -1183,7 +1231,10 @@ export default function TyWygrywaszApp() {
           </aside>
         )}
 
-        <main className="app-content">
+        <main className="app-content" key={privateViewKey}>
+        {!vaultHydrated && !['today', 'privacy', 'legal'].includes(activeView) ? (
+          <section className="empty-panel" role="status"><Shield size={20} /><span>Sejf jest zablokowany. Odblokuj go, aby pracować ze sprawami, dokumentami i pismami.</span><button type="button" className="button-primary" onClick={() => profile ? setIsAccountOpen(true) : setLocalVaultMode('unlock')}>Odblokuj sejf</button></section>
+        ) : <>
         {activeView === 'today' && (
           <TodayView
             cases={cases}
@@ -1289,7 +1340,7 @@ export default function TyWygrywaszApp() {
           />
         )}
 
-        {activeView === 'letters' && (
+        {activeView === 'letters' && vaultHydrated && (
           <LettersView
             cases={cases}
             activeCaseId={activeCaseId}
@@ -1320,7 +1371,7 @@ export default function TyWygrywaszApp() {
 
         {activeView === 'privacy' && (
           <BackupPrivacyView
-            key={`${profile?.id || 'local'}:${vault.vaultId}:${vaultHydrated ? 'open' : 'locked'}`}
+            key={privateViewKey}
             onExportBackup={handleExportBackup}
             onRestoreBackup={handleRestoreBackup}
             vaultInfo={{
@@ -1335,10 +1386,11 @@ export default function TyWygrywaszApp() {
             onResolveSync={handleResolveSync}
             hasSyncCheckpoint={hasSyncCheckpoint}
             onRestoreSyncCheckpoint={handleRestoreSyncCheckpoint}
-            recoveryKey={vaultRecoveryKey}
+            recoveryKey={vaultHydrated ? vaultRecoveryKey : ''}
             onLockVault={handleLockVault}
           />
         )}
+        </>}
         </main>
         <SiteFooter />
       </div>
@@ -1354,12 +1406,12 @@ export default function TyWygrywaszApp() {
               <button type="button" className="account-close" onClick={() => setIsAccountOpen(false)} aria-label="Zamknij"><X size={18} /></button>
             </div>
             <p className="account-intro">Profil pomaga odróżnić Twój sejf od innych profili na tym urządzeniu. Dokumenty pozostają lokalnie i nie są wysyłane przy zakładaniu profilu.</p>
-            {profile && vaultRecoveryKey && <div className="account-note"><Shield size={16} /><span>Sejf używa osobnego klucza odzyskiwania. <button type="button" className="button-link" onClick={() => { const blob = new Blob([`TyWygrywasz.pl — klucz lokalnego sejfu\n\n${vaultRecoveryKey}\n\nPrzechowuj ten plik poza publicznymi usługami. Klucz nie jest hasłem konta.\n`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'tywygrywasz-klucz-sejfu.txt'; link.click(); URL.revokeObjectURL(url); }}>Pobierz klucz odzyskiwania</button></span></div>}
+            {profile && vaultHydrated && vaultRecoveryKey && <div className="account-note"><Shield size={16} /><span>Sejf używa osobnego klucza odzyskiwania. <button type="button" className="button-link" onClick={() => { const blob = new Blob([`TyWygrywasz.pl — klucz lokalnego sejfu\n\n${vaultRecoveryKey}\n\nPrzechowuj ten plik poza publicznymi usługami. Klucz nie jest hasłem konta.\n`], { type: 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'tywygrywasz-klucz-sejfu.txt'; link.click(); URL.revokeObjectURL(url); }}>Pobierz klucz odzyskiwania</button></span></div>}
             <form onSubmit={handleSaveProfile} className="account-form">
               {(authMode === 'register' || profile) && <label>Jak mamy się do Ciebie zwracać<input required autoFocus value={profileDraft.name} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} placeholder="np. Anna Kowalska" /></label>}
               <label>Adres e-mail<input required type="email" autoComplete="email" value={profileDraft.email} onChange={(event) => setProfileDraft({ ...profileDraft, email: event.target.value })} placeholder="np. anna@example.pl" /></label>
               <label>Hasło konta <span>(minimum 12 znaków)</span><input required type="password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} minLength={12} value={profilePassword} onChange={(event) => setProfilePassword(event.target.value)} placeholder="••••••••••••" /></label>
-              <div className="account-note"><Shield size={16} /><span>Konto przechowuje tylko dane logowania. Dokumenty, OCR i hasło sejfu zostają oddzielnie na Twoim urządzeniu.</span></div>
+              <div className="account-note"><Shield size={16} /><span>Hasło konta jest wysyłane przy logowaniu i początkowo chroni także lokalny klucz sejfu. Dokumenty, OCR i klucz pozostają na urządzeniu. Reset hasła konta nie zmienia hasła odblokowania zapisanego sejfu.</span></div>
               <div className="account-actions"><button type="button" className="button-secondary" onClick={() => setIsAccountOpen(false)}>Anuluj</button><button type="submit" disabled={accountBusy} className="button-primary">{accountBusy ? 'Trwa logowanie…' : authMode === 'login' ? 'Zaloguj się' : 'Utwórz konto'}</button></div>
               {!profile && <button type="button" className="account-switch" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Nie masz konta? Załóż je' : 'Masz już konto? Zaloguj się'}</button>}
               {profile && <button type="button" disabled={accountBusy} className="account-switch" onClick={handleLogout}>Wyloguj się</button>}
@@ -1370,12 +1422,25 @@ export default function TyWygrywaszApp() {
               <label className="mt-3 block text-xs font-medium text-slate-700">Hasło lokalnego sejfu lub klucz odzyskiwania<input type="password" autoComplete="current-password" maxLength={256} value={accountVaultPassword} onChange={(event) => setAccountVaultPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2" /></label>
               <button type="button" className="button-primary mt-3 text-xs" disabled={!accountVaultPassword} onClick={() => void handleUnlockAccountVault()}>Odblokuj lokalny sejf</button>
             </section>}
-            <AccountRecoveryPanel user={profile} onAccountChanged={async () => {
+            <AccountRecoveryPanel key={privateViewKey} user={profile} onAccountChanged={async () => {
+              if (!profile || vaultOwnerEpoch.current !== renderedOwnerEpoch) return;
               const response = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
-              if (!response.ok) return;
+              if (!response.ok || vaultOwnerEpoch.current !== renderedOwnerEpoch) return;
               const data = await response.json();
-              if (data.user) { const next = { id: data.user.id, name: data.user.name, email: data.user.email, emailVerified: data.user.emailVerified }; setProfile(next); window.localStorage.setItem('obywatel-profile', JSON.stringify(next)); }
-            }} onPasswordReset={() => { void handleLockVault().then(() => { setProfile(null); window.localStorage.removeItem('obywatel-profile'); setIsAccountOpen(true); setGlobalNotice('Hasło konta zmienione. Dokumenty pozostają zablokowane; użyj dotychczasowego hasła sejfu lub klucza odzyskiwania.'); }); }} />
+              if (vaultOwnerEpoch.current !== renderedOwnerEpoch || data.user?.id !== profile.id) return;
+              const next = { id: data.user.id, name: data.user.name, email: data.user.email, emailVerified: data.user.emailVerified };
+              setProfile(next); window.localStorage.setItem('obywatel-profile', JSON.stringify(next));
+            }} onPasswordReset={async () => {
+              if (vaultOwnerEpoch.current !== renderedOwnerEpoch) return;
+              const lockEpoch = renderedOwnerEpoch + 1;
+              try { await handleLockVault(); }
+              finally {
+                if (vaultOwnerEpoch.current === lockEpoch) {
+                  setProfile(null); window.localStorage.removeItem('obywatel-profile'); setIsAccountOpen(true);
+                  setGlobalNotice('Hasło konta zmienione. Dokumenty pozostają zablokowane; użyj dotychczasowego hasła sejfu lub klucza odzyskiwania.');
+                }
+              }
+            }} />
           </section>
         </div>
       )}

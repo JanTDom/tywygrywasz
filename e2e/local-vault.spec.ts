@@ -4,11 +4,17 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { LocalVault } from '../src/domain/vault';
 import { E2EESyncEngine } from '../src/domain/sync-engine';
+import { deploymentProtectionCookies } from './deployment-protection';
+
+test.beforeEach(async ({ context, baseURL }) => {
+  await context.addCookies(await deploymentProtectionCookies(baseURL));
+});
 
 const PASSWORD = 'Synthetic-vault-password-2026';
 const BACKUP_PASSWORD = 'Synthetic-backup-password-2026';
 const CANARY = 'PRIVATE_CANARY_6f51a4';
 const NOTE = 'Prywatny opis użytkownika PRIVATE_CANARY_6f51a4';
+const PRIVATE_SEARCH = 'PRIVATE_SEARCH_CANARY_account_a_81c7';
 
 async function createLocalVault(page: Page) {
   await page.goto('/');
@@ -49,6 +55,178 @@ async function mockAccount(page: Page, id: string, afterLogout = false) {
   await dialog.getByRole('button', { name: 'Zaloguj się', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
 }
+
+async function switchAccount(page: Page, previousId: string, nextId: string, dialogAlreadyOpen = false) {
+  await page.route('**/api/auth/login', (route) => route.fulfill({ json: { user: { id: nextId, name: `Synthetic ${nextId}`, email: `${nextId}@example.test` } } }));
+  if (!dialogAlreadyOpen) await page.getByRole('button', { name: `Otwórz profil Synthetic ${previousId}` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj swoim kontem' });
+  await dialog.getByLabel('Adres e-mail', { exact: true }).fill(`${nextId}@example.test`);
+  await dialog.getByLabel('Hasło konta', { exact: false }).fill(PASSWORD);
+  await dialog.getByRole('button', { name: 'Zaloguj się', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('button', { name: `Otwórz profil Synthetic ${nextId}` })).toBeVisible();
+}
+
+async function enterPrivateViewState(page: Page) {
+  await page.getByRole('button', { name: 'Pisma', exact: true }).click();
+  await page.getByLabel('Dodatkowe wskazówki do projektu', { exact: false }).fill(NOTE);
+  await page.getByRole('button', { name: 'Szukaj w sprawach, dokumentach i pismach' }).click();
+  const search = page.getByRole('dialog', { name: 'Znajdź w swoim sejfie' });
+  await search.getByPlaceholder('Sprawa, instytucja, nazwa pliku, treść OCR…').fill(PRIVATE_SEARCH);
+  await search.getByRole('button', { name: 'Zamknij wyszukiwanie' }).click();
+}
+
+async function expectPrivateSearchCleared(page: Page) {
+  await page.keyboard.press('Control+k');
+  const search = page.getByRole('dialog', { name: 'Znajdź w swoim sejfie' });
+  await expect(search.getByPlaceholder('Sprawa, instytucja, nazwa pliku, treść OCR…')).toHaveValue('');
+  await search.getByRole('button', { name: 'Zamknij wyszukiwanie' }).click();
+}
+
+async function deferJsonResponse(page: Page, url: string, json: Record<string, unknown>) {
+  let requested!: () => void;
+  let release!: () => void;
+  let handled!: () => void;
+  let requestSettled: Promise<void>;
+  let requestAborted = false;
+  let fulfillError: unknown;
+  const requestedPromise = new Promise<void>((resolve) => { requested = resolve; });
+  const releasePromise = new Promise<void>((resolve) => { release = resolve; });
+  const handledPromise = new Promise<void>((resolve) => { handled = resolve; });
+  await page.route(url, async (route) => {
+    const request = route.request();
+    requestSettled = new Promise<void>((resolve) => {
+      const cleanup = () => {
+        page.off('requestfinished', finished);
+        page.off('requestfailed', failed);
+      };
+      const finished = (candidate: PlaywrightRequest) => {
+        if (candidate !== request) return;
+        cleanup(); resolve();
+      };
+      const failed = (candidate: PlaywrightRequest) => {
+        if (candidate !== request) return;
+        requestAborted = true;
+        cleanup(); resolve();
+      };
+      page.on('requestfinished', finished);
+      page.on('requestfailed', failed);
+    });
+    requested();
+    await releasePromise;
+    try { await route.fulfill({ json }); }
+    catch (error) { fulfillError = error; }
+    finally { handled(); }
+  });
+  return {
+    requested: requestedPromise,
+    release,
+    async settled() {
+      await handledPromise;
+      await requestSettled;
+      if (fulfillError && !requestAborted) throw fulfillError;
+      // Let response.json() and React's resulting work finish after the network event.
+      await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    },
+  };
+}
+
+test('locking the local vault clears private drafting guidance and root search text in the same tab', async ({ page }) => {
+  await createLocalVault(page);
+  await enterPrivateViewState(page);
+  await page.getByRole('button', { name: 'Kopie i prywatność' }).click();
+  await page.getByRole('button', { name: 'Zablokuj sejf', exact: true }).click();
+  const unlock = page.getByRole('dialog', { name: 'Odblokuj swój sejf' });
+  await expect(unlock).toBeVisible();
+  await expectPrivateSearchCleared(page);
+  await unlock.getByLabel('Hasło sejfu lub klucz').fill(PASSWORD);
+  await unlock.getByRole('button', { name: 'Odblokuj sejf', exact: true }).click();
+  await expect(unlock).toBeHidden();
+  await page.getByRole('button', { name: 'Pisma', exact: true }).click();
+  await expect(page.getByLabel('Dodatkowe wskazówki do projektu', { exact: false })).toHaveValue('');
+});
+
+test('direct account owner switch clears private drafting guidance and root search text in the same tab', async ({ page }) => {
+  await createLocalVault(page);
+  await mockAccount(page, 'account-a');
+  await enterPrivateViewState(page);
+  await switchAccount(page, 'account-a', 'account-b');
+  await expect(page.getByLabel('Dodatkowe wskazówki do projektu', { exact: false })).toHaveValue('');
+  await expectPrivateSearchCleared(page);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('obywatel-profile')!).id)).toBe('account-b');
+});
+
+test('logout clears private drafting guidance and root search text before another local unlock in the same tab', async ({ page }) => {
+  await createLocalVault(page);
+  await mockAccount(page, 'account-a');
+  await enterPrivateViewState(page);
+  await page.getByRole('button', { name: 'Otwórz profil Synthetic account-a' }).click();
+  await page.getByRole('button', { name: 'Wyloguj się', exact: true }).click();
+  const unlock = page.getByRole('dialog', { name: 'Odblokuj swój sejf' });
+  await expect(unlock).toBeVisible();
+  await expectPrivateSearchCleared(page);
+  expect(await page.evaluate(() => localStorage.getItem('obywatel-profile'))).toBeNull();
+  await unlock.getByLabel('Hasło sejfu lub klucz').fill(PASSWORD);
+  await unlock.getByRole('button', { name: 'Odblokuj sejf', exact: true }).click();
+  await expect(unlock).toBeHidden();
+  await expect(page.getByLabel('Dodatkowe wskazówki do projektu', { exact: false })).toHaveValue('');
+});
+
+test('delayed verification profile response for A cannot replace owner B or overwrite the A manifest', async ({ page }) => {
+  await createLocalVault(page);
+  await mockAccount(page, 'account-a');
+  await importFile(page, 'verification-owner-a.txt', 'text/plain', Buffer.from(CANARY));
+  await page.route('**/api/auth/capabilities', (route) => route.fulfill({ json: { emailCodesAvailable: true } }));
+  await page.route('**/api/auth/verify-email', (route) => route.fulfill({ json: { success: true, message: 'Synthetic verification completed.' } }));
+  const delayed = await deferJsonResponse(page, '**/api/auth/me', {
+    user: { id: 'account-a', name: 'Synthetic account-a', email: 'account-a@example.test', emailVerified: true },
+  });
+  await page.getByRole('button', { name: 'Otwórz profil Synthetic account-a' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj swoim kontem' });
+  await dialog.getByRole('button', { name: 'Potwierdź e-mail', exact: true }).click();
+  await dialog.getByLabel('Kod z wiadomości').fill('A'.repeat(43));
+  await dialog.getByRole('button', { name: 'Potwierdź adres', exact: true }).click();
+  await delayed.requested;
+  await switchAccount(page, 'account-a', 'account-b', true);
+  const aManifest = await page.evaluate(() => localStorage.getItem('tywygrywasz-vault-account-a'));
+  expect(aManifest).toBeTruthy();
+  await importFile(page, 'verification-owner-b.txt', 'text/plain', Buffer.from('Synthetic original belonging to B'));
+  delayed.release();
+  await delayed.settled();
+  await expect(page.getByRole('button', { name: 'Otwórz profil Synthetic account-b' })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('obywatel-profile')!).id)).toBe('account-b');
+  expect(await page.evaluate(() => localStorage.getItem('tywygrywasz-vault-account-a'))).toBe(aManifest);
+  expect((await originalBytes(page)).toString()).toBe('Synthetic original belonging to B');
+});
+
+test('delayed password reset for A after panel unmount cannot lock or clear owner B', async ({ page }) => {
+  await createLocalVault(page);
+  await mockAccount(page, 'account-a');
+  await importFile(page, 'reset-owner-a.txt', 'text/plain', Buffer.from(CANARY));
+  await page.route('**/api/auth/capabilities', (route) => route.fulfill({ json: { emailCodesAvailable: true } }));
+  const delayed = await deferJsonResponse(page, '**/api/auth/password-reset', { success: true, message: 'Synthetic password reset completed.' });
+  await page.getByRole('button', { name: 'Otwórz profil Synthetic account-a' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Zarządzaj swoim kontem' });
+  await dialog.getByRole('button', { name: 'Nie pamiętam hasła konta' }).click();
+  await dialog.getByLabel('Kod z wiadomości').fill('R'.repeat(43));
+  await dialog.getByLabel('Nowe hasło konta', { exact: true }).fill('Synthetic-reset-password-A-2026');
+  await dialog.getByLabel('Powtórz nowe hasło', { exact: true }).fill('Synthetic-reset-password-A-2026');
+  await dialog.getByRole('button', { name: 'Zmień hasło konta', exact: true }).click();
+  await delayed.requested;
+  await dialog.getByRole('button', { name: 'Zamknij', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await switchAccount(page, 'account-a', 'account-b');
+  const aManifest = await page.evaluate(() => localStorage.getItem('tywygrywasz-vault-account-a'));
+  expect(aManifest).toBeTruthy();
+  await importFile(page, 'reset-owner-b.txt', 'text/plain', Buffer.from('Synthetic B stays unlocked after A reset'));
+  delayed.release();
+  await delayed.settled();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Otwórz profil Synthetic account-b' })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('obywatel-profile')!).id)).toBe('account-b');
+  expect(await page.evaluate(() => localStorage.getItem('tywygrywasz-vault-account-a'))).toBe(aManifest);
+  expect((await originalBytes(page)).toString()).toBe('Synthetic B stays unlocked after A reset');
+});
 
 test('failed second import preserves the first manifest; corrupt ciphertext ends preview loading', async ({ page }) => {
   await createLocalVault(page);
@@ -126,7 +304,7 @@ for (const delayed of [false, true]) {
     await expect(page.getByRole('button', { name: 'Zastosuj serwerową' })).toHaveCount(0);
     await expect(page.getByText(CANARY, { exact: true })).toHaveCount(0);
     await expect(page.locator('input[type=password]').first()).toHaveValue('');
-    expect(await page.evaluate(() => localStorage.getItem('tywygrywasz-sync-checkpoint-sejf-account-b'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem(`tywygrywasz-sync-checkpoint-${JSON.stringify(['account-b', 'sejf-account-b'])}`))).toBeNull();
   });
 }
 
@@ -166,6 +344,24 @@ test('restoring account A backup into B leaves account A original storage unchan
   await page.getByRole('button', { name: 'Otwórz profil Synthetic account-a' }).click();
   await page.getByRole('button', { name: 'Wyloguj się', exact: true }).click();
   await mockAccount(page, 'account-b', true);
+  const preservedSyncRecords = {
+    [`tywygrywasz-sync-checkpoint-${JSON.stringify(['account-a', 'sejf-account-a'])}`]: 'Synthetic checkpoint of owner A',
+    [`tywygrywasz-sync-base-${JSON.stringify(['account-a', 'sejf-account-a'])}`]: 'Synthetic sync base of owner A',
+    [`tywygrywasz-sync-checkpoint-${JSON.stringify(['account-b', 'sejf-account-b'])}`]: 'Synthetic checkpoint of previous B vault',
+    [`tywygrywasz-sync-base-${JSON.stringify(['account-b', 'sejf-account-b'])}`]: 'Synthetic sync base of previous B vault',
+    'tywygrywasz-sync-checkpoint-sejf-account-a': 'Synthetic legacy checkpoint A, owner unknown',
+    'tywygrywasz-sync-base-sejf-account-a': 'Synthetic legacy sync base A, owner unknown',
+    'tywygrywasz-sync-checkpoint-sejf-account-b': 'Synthetic legacy checkpoint B, owner unknown',
+    'tywygrywasz-sync-base-sejf-account-b': 'Synthetic legacy sync base B, owner unknown',
+  };
+  const replacedSyncKeys = [
+    `tywygrywasz-sync-checkpoint-${JSON.stringify(['account-b', 'sejf-account-a'])}`,
+    `tywygrywasz-sync-base-${JSON.stringify(['account-b', 'sejf-account-a'])}`,
+  ];
+  await page.evaluate(({ preserved, replaced }) => {
+    for (const [key, value] of Object.entries(preserved)) localStorage.setItem(key, value);
+    for (const key of replaced) localStorage.setItem(key, 'Synthetic stale checkpoint for the restored B target');
+  }, { preserved: preservedSyncRecords, replaced: replacedSyncKeys });
   await page.locator('input[type=file]').setInputFiles({ name: 'synthetic-owner-backup.json', mimeType: 'application/json', buffer: backup });
   await expect(page.getByPlaceholder('Wklej zaszyfrowany kontener JSON...')).toHaveValue(backup.toString());
   await page.locator('input[type=password]').nth(1).fill(BACKUP_PASSWORD);
@@ -173,6 +369,8 @@ test('restoring account A backup into B leaves account A original storage unchan
   await page.getByRole('button', { name: 'Odtwórz sejf', exact: true }).click();
   await expect(page.getByText('Odtworzono sejf. Hasło kopii', { exact: false })).toBeVisible();
   expect(await ownerSnapshot()).toBe(original);
+  expect(await page.evaluate((keys) => Object.fromEntries(keys.map((key) => [key, localStorage.getItem(key)])), Object.keys(preservedSyncRecords))).toEqual(preservedSyncRecords);
+  expect(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)), replacedSyncKeys)).toEqual([null, null]);
   await page.getByRole('button', { name: 'Dokumenty', exact: true }).click();
   await page.getByText('owner-a-original.txt', { exact: true }).first().click();
   expect((await originalBytes(page)).toString()).toBe(CANARY);
@@ -236,7 +434,7 @@ test('real local OCR, encrypted bytes, clean-profile full backup, reload and rel
   expect(JSON.parse(backup.toString()).documents.records).toHaveLength(2);
   expect(networkLeaks).toEqual([]); expect(foreignRequests).toEqual([]); expect(mutations).toEqual([]);
 
-  const clean = await browser.newContext();
+  const clean = await browser.newContext({ storageState: { cookies: await deploymentProtectionCookies(baseURL), origins: [] } });
   clean.on('request', observeRequest);
   const restored = await clean.newPage();
   await createLocalVault(restored);
@@ -245,8 +443,11 @@ test('real local OCR, encrypted bytes, clean-profile full backup, reload and rel
   await restored.locator('input[type=password]').nth(1).fill(BACKUP_PASSWORD);
   await restored.getByRole('checkbox', { name: /Wybieram zastąpienie/ }).check();
   await restored.getByRole('button', { name: 'Odtwórz sejf', exact: true }).click();
-  await expect(restored.getByText(/Odtworzono 0 spraw, 2 rekordów i 2 oryginalnych plików/)).toBeVisible();
+  await expect(restored.getByText('Odtworzono sejf. Hasło kopii', { exact: false })).toBeVisible();
+  await expect(restored.getByText('0 spraw, 2 dokumentów', { exact: true })).toBeVisible();
   await restored.getByRole('button', { name: 'Dokumenty', exact: true }).click();
+  await restored.getByText('synthetic-scan.png', { exact: true }).first().click();
+  expect(await originalBytes(restored)).toEqual(png);
   await restored.getByText('synthetic-scanned.pdf', { exact: true }).first().click();
   await expect(restored.getByText(NOTE, { exact: true })).toBeVisible();
   expect(createHash('sha256').update(await originalBytes(restored)).digest('hex')).toBe(createHash('sha256').update(pdfBytes).digest('hex'));

@@ -46,7 +46,9 @@ pozytywną opinią drugiego modelu.
 
 ## Wyniki wykonania — 2026-10-06
 
-Środowisko: Node 24.14.0, Next 15.5.27, Chromium Playwright 1.63.0, dane syntetyczne. `npm run lint`, `npm run typecheck`, `npm test` (29 plików, 129 testów), `npm run build` i `E2E_PRODUCTION=1 npm run test:e2e` (9/9; oddzielny test zdalny pominięty) przechodzą. `git diff --check` jest czysty.
+Końcowy przegląd statusu publikacji: 2026-10-07. Dwa syntetyczne konta użyte w rzeczywistym teście Supabase usunięto po przebiegu, tak jak tymczasowy plik cookie wdrożenia.
+
+Kod wydania: `9c9ce03cd460e51b18f88dd44706c8d36aadd9df`. Środowisko: Node 24.14.0, Next 15.5.27, Chromium Playwright 1.63.0, dane syntetyczne. `npm run lint`, `npm run typecheck`, `npm test` (30 plików, 145 testów) i `npm run build` przechodzą. Zweryfikowano 14 lokalnych scenariuszy browser: 13 w przebiegu zbiorczym oraz jeden ponowny przebieg OCR po poprawieniu selektora uwzględniającego remount. Nie stwierdzono błędu kodu aplikacji w tym scenariuszu; pobrane PNG i PDF porównano bajt po bajcie. Zdalny test rzeczywistych kont jest lokalnie pomijany. Wdrożenie Vercel `dpl_CS3SG1kj6xVv77kieymcPw2RtW4u` jest `READY`; na [adresie wydania](https://tywygrywasz-6f7upj9fx-macieto.vercel.app) przeszło 15/15 scenariuszy w 59,8 s, w tym test dwóch rzeczywistych kont Supabase, sesji i synchronizacji. Kod aplikacji i harness pozostały bez zmian po commicie wydania. Przełączenie domeny produkcyjnej nie nastąpiło; automatyczny przegląd zgody odrzucił promocję i wymaga ona wyraźnej autoryzacji.
 
 | Wykonany scenariusz | Wynik i granica zapewnienia |
 |---|---|
@@ -58,10 +60,16 @@ pozytywną opinią drugiego modelu.
 | Odtworzenie kopii A na koncie B | Rzeczywiste przestrzenie IDB: bajty A pozostają niezmienione, dokument B jest czytelny po odtworzeniu; odpowiedzi kont są mockowane |
 | Częściowo udany import / niedostępny szyfrogram | Pierwszy plik zachowany po błędzie drugiego i przeładowaniu strony; uszkodzony szyfrogram kończy loading podglądu |
 | Spóźniony konflikt po zmianie właściciela | Dwa warianty opóźnienia auth/sync: dane i konflikt wcześniejszego właściciela nie są dostępne po zmianie konta; odpowiedzi serwera mockowane |
+| Opóźniona weryfikacja i reset konta A po przejściu na B | Dwie nowe regresje browser: profil i odblokowany sejf B pozostają aktywne, manifest A i bajty oryginału B zachowane. Opóźnione HTTP są mockowane; Web Crypto, IDB i UI rzeczywiste |
+| Stan formularzy i wyszukiwania przy blokadzie, zmianie konta i wylogowaniu | Prywatne wskazówki pisma i zapytanie wyszukiwania znikają w każdym z trzech przebiegów w tej samej karcie |
+| Pełne odtworzenie przy tym samym vaultId na innym koncie | Punkt powrotu, baza i oryginały A oraz stare wpisy pozostają zachowane; czyszczony jest tylko stan właściwego celu B. 16 testów domeny obejmuje też ramowanie i błędne identyfikatory |
 | Telefon i brak usługi kodów | Dialog konta przewija się przy 390×650; brak mailera jest jawny i nie udaje wysyłki kodu |
 | Wydruk wybranego pisma | Rzeczywisty UI i osobny iframe zawierają wyłącznie formatowany projekt; prywatne wskazówki nie występują. Wywołanie dialogu drukarki przechwycone przez test |
 | Izolacja kont, CAS, CSRF, recovery | Rzeczywiste handlery HTTP i pamięciowy backend testowy; lokalny test SQL RPC w PGlite sprawdza role, replay, wygaśnięcie i sesje. Migracje zastosowano także w docelowym Supabase; kontrola katalogu potwierdziła RLS, role i RPC, bez odczytu prywatnych wierszy |
+| Zdalne konta, sesje i synchronizacja dwóch właścicieli | Rzeczywisty backend Supabase na wdrożeniu `9c9ce03`, część wyniku 15/15; dwa świeże konta z danymi syntetycznymi. Bez wysyłania poczty; konta usunięto po kontroli |
 | Niepełna / uszkodzona kopia, quota, rollback | Testy domeny i pamięciowego backendu; browser E2E potwierdza zwykłą transakcję IDB, nie symuluje awarii dysku ani wszystkich błędów localStorage |
 | Podział PDF i korekta OCR | Realny PDF-lib tworzy wybrane strony z osobnym pochodzeniem, oryginał zachowany. Korekta nie dziedziczy geometrii zmienionego tekstu |
 
 Nie przeprowadzono realnej płatności, podpisu, złożenia pisma, doręczenia e-maila ani publikacji danych. Katalog prawa, redakcja próbki i adapter Gemini nie są dowodem aktualności prawa, pełnej anonimizacji PDF lub działającej usługi AI. Pełne kryteria powyżej pozostają wymaganiami do spełnienia przy uruchamianiu kolejnych funkcji. Bieżący zakres i przygotowanie produkcji opisuje `IMPLEMENTATION_STATUS.md`.
+
+Natywny skan `7b3d2dd4-8bbb-46d5-afac-7e1a3d9b51c2` zakończono i zapieczętowano dla niezmiennego `f3671c24` i całego tekstowego zakresu `src`: 78 plików przeczytanych w całości, binarna ikona wyłączona, niezależny baseline i przegląd granic właściciela. Raport zawiera trzy MEDIUM i jedno LOW. Trzy MEDIUM poprawiono w `9c9ce03`, niezależnie sprawdzono w źródłach i pokryto pięcioma regresjami browser. LOW ujawniania istnienia konta przy rejestracji pozostaje otwarte; usunięcie wymaga rzeczywistego potwierdzenia skrzynki lub ograniczenia dostępu. Te wyniki nie są certyfikacją bezpieczeństwa ani poprawności prawnej produktu.

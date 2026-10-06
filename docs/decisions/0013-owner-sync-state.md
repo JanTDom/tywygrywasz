@@ -1,6 +1,6 @@
 # 0013 — stan synchronizacji oddzielony według właściciela
 
-Data: 2026-10-06. Status: przyjęte; helpery domenowe i testy.
+Data: 2026-10-06. Status: zintegrowane w aplikacji i sprawdzone w `9c9ce03cd460e51b18f88dd44706c8d36aadd9df`.
 
 ## Powód
 
@@ -25,8 +25,10 @@ używa właściciela `local`; konto używa technicznego ID użytkownika.
 Oba identyfikatory muszą być niepustym tekstem. Helpery odrzucają również
 same białe znaki i zachowują dokładny zapis poprawnych identyfikatorów.
 Ramowanie JSON rozróżnia pary zawierające myślniki, dwukropki i cudzysłowy.
-Integracja musi używać tych helperów przy każdym odczycie, zapisie,
-usunięciu i sprawdzaniu obecności lokalnego stanu synchronizacji.
+Główna aplikacja używa tych helperów przy każdym odczycie, zapisie,
+usunięciu i sprawdzaniu obecności lokalnego stanu synchronizacji: odblokowaniu,
+wysyłce, porównaniu baz, wyborze konfliktu, powrocie do punktu przywracania
+i pełnym odtworzeniu kopii. Sprawdzenie integracji objęło wszystkie te wywołania.
 
 Stare klucze zawierające wyłącznie `vaultId` pozostają nietknięte i nie są
 automatycznie przyjmowane jako stan bieżącego właściciela. Nazwa takiego
@@ -44,8 +46,14 @@ Do nazw nie trafiają e-mail, nazwa dokumentu ani prywatny hash.
 Testy domenowe sprawdzają usunięcie punktu B przy zachowaniu punktu A oraz
 obu starych zapisów, rozdzielenie sejfu lokalnego od konta, pary z
 niejednoznacznymi separatorami oraz odrzucanie brakujących identyfikatorów.
-Test używa pamięciowej mapy odpowiadającej nazwom kluczy. Pełny test
-przeglądarkowy wymaga integracji wszystkich wywołań w aplikacji.
+16 testów domeny używa pamięciowej mapy odpowiadającej nazwom kluczy.
+Regresja przeglądarkowa odtwarza kopię A na koncie B przy tym samym `vaultId`:
+oryginały i stan punktu powrotu/bazy A, wcześniejszy stan sejfu B oraz stare
+wpisy pozostają zachowane; usuwany jest tylko stan odtwarzanego celu B.
+UI, localStorage, IndexedDB i kryptografia działają rzeczywiście; odpowiedzi
+uwierzytelniania w lokalnym scenariuszu są mockowane. Niezależna kontrola
+źródeł potwierdziła użycie helperów. To osobna weryfikacja poprawki po
+zapieczętowanym skanie wcześniejszego `f3671c24`, którego raportu nie zmieniano.
 
 Rozdzielenie kluczy chroni przed mieszaniem zapisów przez zaufany kod
 aplikacji. Wspólne pochodzenie webowe nadal pozwala kodowi aplikacji czytać

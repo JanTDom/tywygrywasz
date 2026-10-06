@@ -45,4 +45,8 @@ rejestracji P24 trafia do zwróconego adresu przekierowania
 do operatora. Klucze API i CRC pozostają po stronie serwera; token rejestracji
 nie jest jednym z tych kluczy.
 
-Przed uruchomieniem produkcji należy wykonać migrację `20261005113000_payment_orders.sql`, skonfigurować URL-e w panelu P24 i przetestować sandbox. Politykę zwrotów, regulamin, dane firmy, cenę i zasady dostępu trzeba uzupełnić danymi sprzedawcy przed włączeniem checkoutu.
+Migrację `20261005113000_payment_orders.sql` zastosowano w docelowym Supabase
+6 października 2026; kontrola katalogu potwierdziła RLS i uprawnienia serwerowe.
+Przed włączeniem checkoutu nadal trzeba skonfigurować klucze i URL-e w panelu
+P24 oraz Vercel, przejść płatność sandbox i uzupełnić ofertę, cenę, zasady dostępu,
+zwrotów oraz dokumenty sprzedawcy. Gotowa tabela nie oznacza działającej płatności.

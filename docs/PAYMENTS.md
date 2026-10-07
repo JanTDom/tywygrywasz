@@ -5,6 +5,14 @@ Integracja jest przygotowana po stronie serwera, ale pozostaje wyłączona, dop�
 W bieżącej produkcji Przelewy24 nie jest jeszcze skonfigurowane. Nie wykonano
 rzeczywistej płatności; przykłady zmiennych poniżej nie są wartościami wdrożenia.
 
+Kod aplikacji `9c9ce03` opublikowano 7 października 2026 po wyraźnej zgodzie
+użytkownika; promocja sprawdzonego wdrożenia Vercel zakończyła się sukcesem.
+Publikacja kodu i przełączenie domen nie włączają sprzedaży ani nie zastępują
+konfiguracji oraz testu sandbox Przelewy24.
+Publiczna kontrola `/api/payments/config` na obu domenach potwierdziła status
+200 i `ready: false` z powodu brakującej ceny i konfiguracji P24. To sprawdzenie
+odmowy niepełnej konfiguracji, nie wykonanie płatności.
+
 ## Zmienne środowiskowe
 
 Ustaw jako sekrety w Vercel (Production i Preview, gdy testujesz sandbox):

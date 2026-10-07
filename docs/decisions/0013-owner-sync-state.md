@@ -2,6 +2,13 @@
 
 Data: 2026-10-06. Status: zintegrowane w aplikacji i sprawdzone w `9c9ce03cd460e51b18f88dd44706c8d36aadd9df`.
 
+Publikacja: 2026-10-07. Po wyraźnej zgodzie użytkownika kod opublikowano na GitHub,
+a promocja sprawdzonego wdrożenia Vercel zakończyła się sukcesem. Dokumentacja
+jest publikowana oddzielnie; kod aplikacji i harness zachowują wersję `9c9ce03`.
+Obie własne domeny serwują tę implementację; osobna kontrola HTTP przeszła
+14/14, a trzy scenariusze browser na `tywygrywasz.pl` potwierdziły lokalny przebieg.
+Nie zastępuje to opisanych niżej regresji izolacji właściciela.
+
 ## Powód
 
 Punkt powrotu przechowuje zaszyfrowany wcześniejszy manifest po wyborze
